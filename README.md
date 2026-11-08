@@ -5,10 +5,12 @@ Progression Series. Nothing else changes.
 
 - `genesys.conf` in the EDOPRO folder: a `$genesys <cap>` line, then `<card code> <points>` lines (`#` comments).
   Loaded at startup and every time the deck editor opens. No file = stock behaviour.
-- Each card with points gets a round badge (top right; on the left edge, under the limit icon, in rows where cards
-  overlap). Alternate artworks use their main card's points.
+- Each card with points gets an icon built like the limit icon (black disc, purple ring, yellow number): top right,
+  or on the left edge under the limit icon in rows where cards overlap. `textures/genesys/<points>.png` is used when
+  present (exact bold italic look), otherwise it's drawn. Alternate artworks use their main card's points.
 - The Main Deck bar shows `Genesys <points>/<cap>` for Main + Extra (the Side Deck doesn't count), red when over.
-- In a room hosted with a banlist whose name starts with `PROG - `, Ready is refused while the deck is over the cap.
+- Ready is refused while the deck is over the cap when the deck's name or the room's banlist starts with `PROG - `
+  (hosted rooms, LAN, LAN + AI). Nothing is shown during duels.
 
 Builds: GitHub Actions on this branch (Windows x86 with the VS2019 toolset, macOS universal), dependencies pinned to
 the 41.0.2 era. The card picture URLs are the official ones; the auto-updater URL is left out on purpose so the client
