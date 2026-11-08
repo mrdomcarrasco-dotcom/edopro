@@ -6,6 +6,11 @@ env:
   # dependency caches as of the 41.0.2 release (April 2025)
   DEPENDENCIES_BASE_URL: https://github.com/edo9300/edopro-vcpkg-cache/releases/download/20250329
   DEPLOY_DIR: deploy
+  # the official client's card picture / field / cover URLs (taken from the 41.0.2 binary). No UPDATE_URL on purpose:
+  # the auto-updater would replace this build with the stock client.
+  PICS_URL: https://pics.projectignis.org:2096/pics/{}.jpg
+  FIELDS_URL: https://pics.projectignis.org:2096/field/{}.png
+  COVERS_URL: https://pics.projectignis.org:2096/pics/cover/{}.jpg
 jobs:
   Windows:
     runs-on: windows-2022
