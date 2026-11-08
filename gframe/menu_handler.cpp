@@ -30,10 +30,13 @@
 
 namespace ygo {
 
-// Progression Series: in a room hosted with a "PROG - " banlist, a deck over the Genesys points cap can't be readied
-static bool GenesysRefusesReady() {
+// Progression Series: a deck over the Genesys points cap can't be readied (hosted rooms, LAN, LAN + AI) when it's a
+// progression deck (its name starts with "PROG - ") or the room uses a "PROG - " banlist
+static bool GenesysRefusesReady(epro::wstringview deck_name) {
 	const auto* lflist = mainGame->deckBuilder.filterList;
-	if(!lflist || lflist->listName.rfind(L"PROG - ", 0) != 0)
+	const bool prog_room = lflist && lflist->listName.rfind(L"PROG - ", 0) == 0;
+	const bool prog_deck = deck_name.substr(0, 7) == epro::wstringview(L"PROG - ");
+	if(!prog_room && !prog_deck)
 		return false;
 	gdeckManager->LoadGenesys();
 	const auto& genesys = gdeckManager->genesys;
@@ -329,7 +332,7 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 				if(!mainGame->deckBuilder.SetCurrentDeckFromFile(Utils::ToPathString(mainGame->cbDeckSelect->getItem(selected)), false,
 																 mainGame->dInfo.HasFieldFlag(DUEL_EXTRA_DECK_RITUAL) ? RITUAL_LOCATION::EXTRA : RITUAL_LOCATION::MAIN))
 					break;
-				if(GenesysRefusesReady())
+				if(GenesysRefusesReady(mainGame->cbDeckSelect->getItem(selected)))
 					break;
 				UpdateDeck();
 				DuelClient::SendPacketToServer(CTOS_HS_READY);
@@ -826,7 +829,7 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 						static_cast<irr::gui::IGUICheckBox*>(caller)->setChecked(false);
 						break;
 					}
-					if(GenesysRefusesReady()) {
+					if(GenesysRefusesReady(mainGame->cbDeckSelect->getItem(selected))) {
 						static_cast<irr::gui::IGUICheckBox*>(caller)->setChecked(false);
 						break;
 					}

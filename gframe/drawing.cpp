@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <unordered_map>
 #include "game_config.h"
 #include <irrlicht.h>
 #include "game.h"
@@ -12,6 +13,7 @@
 #include "custom_skin_enum.h"
 #include "image_manager.h"
 #include "fmt.h"
+#include "utils.h"
 
 namespace ygo {
 void Game::DrawSelectionLine(const Materials::QuadVertex vec, bool strip, int width, irr::video::SColor color) {
@@ -1181,7 +1183,10 @@ void Game::WaitFrameSignal(int frame, std::unique_lock<epro::mutex>& _lck) {
 	signalFrame = (gGameConfig->quick_animation && frame >= 12) ? 12 * 1000 / 60 : frame * 1000 / 60;
 	frameSignal.Wait(_lck);
 }
-// Progression Series: a round Genesys points badge, coloured by cost like the app's card badges
+// Progression Series: the Genesys points icon, built like EDOPRO's own limit icon (black disc, coloured ring, thin
+// black edge, yellow number with a dark outline) but with a purple ring, so it never reads as "Limited".
+// The exact icon (bold italic number) comes from textures/genesys/<points>.png, which the Progression app installs;
+// without that file the same icon is drawn here with the regular number font.
 static irr::video::ITexture* GetGenesysDotTexture(irr::video::IVideoDriver* driver) {
 	static irr::video::ITexture* texture = nullptr;
 	if(texture)
@@ -1203,30 +1208,47 @@ static irr::video::ITexture* GetGenesysDotTexture(irr::video::IVideoDriver* driv
 	img->drop();
 	return texture;
 }
-static irr::video::SColor GenesysTierColor(uint32_t points) {
-	if(points >= 30)
-		return irr::video::SColor(255, 214, 51, 108);
-	if(points >= 20)
-		return irr::video::SColor(255, 232, 96, 44);
-	if(points >= 10)
-		return irr::video::SColor(255, 240, 150, 40);
-	return irr::video::SColor(255, 90, 140, 200);
+static irr::video::ITexture* GetGenesysIconTexture(irr::video::IVideoDriver* driver, uint32_t points) {
+	static std::unordered_map<uint32_t, irr::video::ITexture*> icons;
+	auto it = icons.find(points);
+	if(it != icons.end())
+		return it->second;
+	irr::video::ITexture* texture = nullptr;
+	const auto path = epro::format(EPRO_TEXT("./textures/genesys/{}.png"), points);
+	if(Utils::FileExists(path))
+		texture = driver->getTexture({ path.data(), static_cast<irr::u32>(path.size()) });
+	icons[points] = texture;
+	return texture;
 }
 void Game::DrawGenesysBadge(uint32_t points, const irr::core::recti& loc, const irr::core::recti* cliprect) {
+	if(auto* icon = GetGenesysIconTexture(driver, points)) {
+		const auto size = icon->getOriginalSize();
+		imageManager.draw2DImageFilterScaled(icon, loc, irr::core::recti(0, 0, size.Width, size.Height), cliprect, 0, true);
+		return;
+	}
 	auto* dot = GetGenesysDotTexture(driver);
 	if(!dot)
 		return;
-	const irr::video::SColor white[4]{ 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff };
-	const auto tier = GenesysTierColor(points);
-	const irr::video::SColor inner[4]{ tier, tier, tier, tier };
-	const auto border = std::max(1, loc.getWidth() / 12);
-	const irr::core::recti inner_loc(loc.UpperLeftCorner.X + border, loc.UpperLeftCorner.Y + border, loc.LowerRightCorner.X - border, loc.LowerRightCorner.Y - border);
-	imageManager.draw2DImageFilterScaled(dot, loc, irr::core::recti(0, 0, 64, 64), cliprect, white, true);
-	imageManager.draw2DImageFilterScaled(dot, inner_loc, irr::core::recti(0, 0, 64, 64), cliprect, inner, true);
+	const auto Layer = [&](irr::video::SColor color, float inset) {
+		const auto d = static_cast<irr::s32>(loc.getWidth() * inset);
+		const irr::video::SColor colors[4]{ color, color, color, color };
+		imageManager.draw2DImageFilterScaled(dot, irr::core::recti(loc.UpperLeftCorner.X + d, loc.UpperLeftCorner.Y + d, loc.LowerRightCorner.X - d, loc.LowerRightCorner.Y - d),
+											 irr::core::recti(0, 0, 64, 64), cliprect, colors, true);
+	};
+	// radius fractions as in the app's picture badges: edge 9% of the radius, ring 22%
+	Layer(irr::video::SColor(255, 0, 0, 0), 0.0f);
+	Layer(irr::video::SColor(255, 150, 70, 230), 0.045f);
+	Layer(irr::video::SColor(255, 12, 8, 20), 0.155f);
 	const auto text = epro::to_wstring(points);
-	const irr::core::recti shadow(inner_loc.UpperLeftCorner.X + 1, inner_loc.UpperLeftCorner.Y + 1, inner_loc.LowerRightCorner.X + 1, inner_loc.LowerRightCorner.Y + 1);
-	adFont->drawustring(text, shadow, 0xff280a14, true, true, cliprect);
-	adFont->drawustring(text, inner_loc, 0xffffffff, true, true, cliprect);
+	for(int ox = -1; ox <= 1; ++ox) {
+		for(int oy = -1; oy <= 1; ++oy) {
+			if(ox == 0 && oy == 0)
+				continue;
+			const irr::core::recti outline(loc.UpperLeftCorner.X + ox, loc.UpperLeftCorner.Y + oy, loc.LowerRightCorner.X + ox, loc.LowerRightCorner.Y + oy);
+			adFont->drawustring(text, outline, irr::video::SColor(255, 20, 10, 0), true, true, cliprect);
+		}
+	}
+	adFont->drawustring(text, loc, irr::video::SColor(255, 255, 230, 40), true, true, cliprect);
 }
 void Game::DrawThumb(const CardDataC* cp, irr::core::vector2di pos, LFList* lflist, bool drag, const irr::core::recti* cliprect, bool load_image) {
 	auto code = cp->code;
@@ -1272,18 +1294,17 @@ void Game::DrawThumb(const CardDataC* cp, irr::core::vector2di pos, LFList* lfli
 		}
 	}
 	// Genesys points in the top right corner, the same row as the limit icon (which keeps the top left, so the
-	// "1"/"2" owned-copies icons stay visible). It sits exactly over the badge the Progression app paints on its
-	// card pictures, so a card never shows two.
+	// "1"/"2" owned-copies icons stay visible)
 	if(gdeckManager->genesys.loaded) {
 		if(const auto points = gdeckManager->genesys.GetPoints(cp)) {
-			const auto w = dragloc.getWidth();
-			irr::core::recti badgeloc(dragloc.UpperLeftCorner.X + w * 20 / 44, dragloc.UpperLeftCorner.Y,
-									  dragloc.LowerRightCorner.X, dragloc.UpperLeftCorner.Y + w * 24 / 44);
+			// the limit icon's size, in the top right corner
+			irr::core::recti badgeloc(dragloc.LowerRightCorner.X - limitloc.getWidth(), dragloc.UpperLeftCorner.Y,
+									  dragloc.LowerRightCorner.X, dragloc.UpperLeftCorner.Y + limitloc.getHeight());
 			// in a row where the next card covers this one's right side, use the always visible left edge instead:
 			// the limit icon's spot, or just under it when the card shows a limit icon
 			if(genesys_thumb_overlapped) {
 				const auto top = dragloc.UpperLeftCorner.Y + (drew_limit ? limitloc.getHeight() : 0);
-				badgeloc = irr::core::recti(dragloc.UpperLeftCorner.X, top, dragloc.UpperLeftCorner.X + w * 22 / 44, top + w * 22 / 44);
+				badgeloc = irr::core::recti(dragloc.UpperLeftCorner.X, top, dragloc.UpperLeftCorner.X + limitloc.getWidth(), top + limitloc.getHeight());
 			}
 			DrawGenesysBadge(points, badgeloc, cliprect);
 		}
