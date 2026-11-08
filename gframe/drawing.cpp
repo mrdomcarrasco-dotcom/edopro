@@ -1250,7 +1250,9 @@ void Game::DrawThumb(const CardDataC* cp, irr::core::vector2di pos, LFList* lfli
 		otloc = irr::core::recti(pos.X + 7, pos.Y + 50 * window_scale.Y, pos.X + 37 * window_scale.X, pos.Y + 65 * window_scale.Y);
 	}
 	driver->draw2DImage(img, dragloc, irr::core::recti(0, 0, size.Width, size.Height), cliprect);
+	bool drew_limit = false;
 	if(!is_siding) {
+		drew_limit = count <= 2 || (cp->ot & SCOPE_LEGEND);
 		switch(count) {
 			case -1:
 			case 0:
@@ -1275,8 +1277,14 @@ void Game::DrawThumb(const CardDataC* cp, irr::core::vector2di pos, LFList* lfli
 	if(gdeckManager->genesys.loaded) {
 		if(const auto points = gdeckManager->genesys.GetPoints(cp)) {
 			const auto w = dragloc.getWidth();
-			const irr::core::recti badgeloc(dragloc.UpperLeftCorner.X + w * 20 / 44, dragloc.UpperLeftCorner.Y,
-											dragloc.LowerRightCorner.X, dragloc.UpperLeftCorner.Y + w * 24 / 44);
+			irr::core::recti badgeloc(dragloc.UpperLeftCorner.X + w * 20 / 44, dragloc.UpperLeftCorner.Y,
+									  dragloc.LowerRightCorner.X, dragloc.UpperLeftCorner.Y + w * 24 / 44);
+			// in a row where the next card covers this one's right side, use the always visible left edge instead:
+			// the limit icon's spot, or just under it when the card shows a limit icon
+			if(genesys_thumb_overlapped) {
+				const auto top = dragloc.UpperLeftCorner.Y + (drew_limit ? limitloc.getHeight() : 0);
+				badgeloc = irr::core::recti(dragloc.UpperLeftCorner.X, top, dragloc.UpperLeftCorner.X + w * 22 / 44, top + w * 22 / 44);
+			}
 			DrawGenesysBadge(points, badgeloc, cliprect);
 		}
 	}
@@ -1354,6 +1362,7 @@ void Game::DrawDeckBd() {
 		const int cards_per_row = (current_deck.main.size() > 40) ? static_cast<int>((current_deck.main.size() - 41) / 4 + 11) : 10;
 		const float dx = 436.0f / (cards_per_row - 1);
 
+		genesys_thumb_overlapped = dx < CARD_THUMB_WIDTH;
 		for(int i = 0; i < static_cast<int>(current_deck.main.size()); ++i) {
 			DrawThumb(current_deck.main[i], irr::core::vector2di(314 + (i % cards_per_row) * dx, 164 + (i / cards_per_row) * 68), deckBuilder.filterList);
 			if(deckBuilder.hovered_pos == 1 && deckBuilder.hovered_seq == i)
@@ -1388,6 +1397,7 @@ void Game::DrawDeckBd() {
 		DRAWOUTLINE(EXTRA, 309, 462, 797, 533);
 
 		const float dx = (current_deck.extra.size() <= 10) ? (436.0f / 9.0f) : (436.0f / (current_deck.extra.size() - 1));
+		genesys_thumb_overlapped = dx < CARD_THUMB_WIDTH;
 
 		for(size_t i = 0; i < current_deck.extra.size(); ++i) {
 			DrawThumb(current_deck.extra[i], irr::core::vector2di(314 + i * dx, 466), deckBuilder.filterList);
@@ -1420,6 +1430,7 @@ void Game::DrawDeckBd() {
 		DRAWOUTLINE(SIDE, 309, 559, 797, 630);
 
 		const float dx = (current_deck.side.size() <= 10) ? (436.0f / 9.0f) : (436.0f / (current_deck.side.size() - 1));
+		genesys_thumb_overlapped = dx < CARD_THUMB_WIDTH;
 
 		for(size_t i = 0; i < current_deck.side.size(); ++i) {
 			DrawThumb(current_deck.side[i], irr::core::vector2di(314 + i * dx, 564), deckBuilder.filterList);
@@ -1427,6 +1438,7 @@ void Game::DrawDeckBd() {
 				driver->draw2DRectangleOutline(Resize(313 + i * dx, 563, 359 + i * dx, 629), skin::DECK_WINDOW_HOVERED_CARD_OUTLINE_VAL);
 		}
 	}
+	genesys_thumb_overlapped = false;
 	//search result
 	{
 		DRAWRECT(SEARCH_RESULT_INFO, 805, 137, 915, 157);

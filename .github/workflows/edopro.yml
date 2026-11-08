@@ -21,10 +21,7 @@ jobs:
           - name: vs2019
             vs_gen: vs2019
             zip: installed_x86-windows-static-vs2019.zip
-          # the official release's setup: premake vs2017 + --oldwindows (VS_GEN empty)
-          - name: vs2017
-            vs_gen: ""
-            zip: installed_x86-windows-static.zip
+          # (the official release's vs2017 + --oldwindows setup needs the v141_xp toolset, which today's runners lack)
     runs-on: windows-2022
     env:
       TRAVIS_OS_NAME: windows
