@@ -30,6 +30,22 @@
 
 namespace ygo {
 
+// Progression Series: in a room hosted with a "PROG - " banlist, a deck over the Genesys points cap can't be readied
+static bool GenesysRefusesReady() {
+	const auto* lflist = mainGame->deckBuilder.filterList;
+	if(!lflist || lflist->listName.rfind(L"PROG - ", 0) != 0)
+		return false;
+	gdeckManager->LoadGenesys();
+	const auto& genesys = gdeckManager->genesys;
+	if(!genesys.loaded || genesys.cap == 0)
+		return false;
+	const auto points = genesys.GetDeckPoints(mainGame->deckBuilder.GetCurrentDeck());
+	if(points <= genesys.cap)
+		return false;
+	mainGame->PopupMessage(epro::format(L"This deck is {}/{} Genesys points, over the cap.\nTake cards out (Main + Extra count, the Side Deck doesn't) before you Ready.", points, genesys.cap), L"Genesys points");
+	return true;
+}
+
 static void UpdateDeck() {
 	gGameConfig->lastdeck = mainGame->cbDeckSelect->getItem(mainGame->cbDeckSelect->getSelected());
 	const auto& deck = mainGame->deckBuilder.GetCurrentDeck();
@@ -312,6 +328,8 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 					break;
 				if(!mainGame->deckBuilder.SetCurrentDeckFromFile(Utils::ToPathString(mainGame->cbDeckSelect->getItem(selected)), false,
 																 mainGame->dInfo.HasFieldFlag(DUEL_EXTRA_DECK_RITUAL) ? RITUAL_LOCATION::EXTRA : RITUAL_LOCATION::MAIN))
+					break;
+				if(GenesysRefusesReady())
 					break;
 				UpdateDeck();
 				DuelClient::SendPacketToServer(CTOS_HS_READY);
@@ -805,6 +823,10 @@ bool MenuHandler::OnEvent(const irr::SEvent& event) {
 					   !mainGame->deckBuilder.SetCurrentDeckFromFile(
 						   Utils::ToPathString(mainGame->cbDeckSelect->getItem(selected)), false,
 						   mainGame->dInfo.HasFieldFlag(DUEL_EXTRA_DECK_RITUAL) ? RITUAL_LOCATION::EXTRA : RITUAL_LOCATION::MAIN)) {
+						static_cast<irr::gui::IGUICheckBox*>(caller)->setChecked(false);
+						break;
+					}
+					if(GenesysRefusesReady()) {
 						static_cast<irr::gui::IGUICheckBox*>(caller)->setChecked(false);
 						break;
 					}

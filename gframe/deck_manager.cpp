@@ -94,7 +94,44 @@ bool DeckManager::LoadLFListFolder(epro::path_stringview _path) {
 	}
 	return loaded;
 }
+bool DeckManager::LoadGenesys() {
+	static constexpr auto key = "$genesys"sv;
+	GenesysPoints loaded_points;
+	FileStream infile{ EPRO_TEXT("./genesys.conf"), FileStream::in };
+	if(infile.fail()) {
+		genesys = GenesysPoints{};
+		return false;
+	}
+	std::string str;
+	while(std::getline(infile, str)) {
+		{
+			auto pos = str.find('\r');
+			if(pos != std::string::npos)
+				str.erase(pos);
+		}
+		if(str.empty() || str[0] == '#')
+			continue;
+		try {
+			if(str.rfind(key.data(), 0, key.size()) == 0) {
+				loaded_points.cap = static_cast<uint32_t>(std::stoul(str.substr(key.size())));
+				loaded_points.loaded = true;
+				continue;
+			}
+			auto p = str.find(' ');
+			if(p == std::string::npos)
+				continue;
+			auto code = static_cast<uint32_t>(std::stoul(str.substr(0, p)));
+			auto value = static_cast<uint32_t>(std::stoul(str.substr(p + 1)));
+			if(code && value)
+				loaded_points.points[code] = value;
+		}
+		catch(...) {}
+	}
+	genesys = std::move(loaded_points);
+	return genesys.loaded;
+}
 void DeckManager::LoadLFList() {
+	LoadGenesys();
 	LoadLFListSingle(EPRO_TEXT("./expansions/lflist.conf"));
 	LoadLFListSingle(EPRO_TEXT("./lflist.conf"));
 	LoadLFListFolder(EPRO_TEXT("./lflists/"));

@@ -35,6 +35,31 @@ enum class DuelAllowedCards {
 	ALLOWED_CARDS_WITH_PRERELEASE,
 	ALLOWED_CARDS_ANY
 };
+// Progression Series: Genesys points. ./genesys.conf holds a "$genesys <cap>" line and "<code> <points>" lines;
+// the deck editor shows each card's points and the deck total, and Ready is refused in "PROG - " rooms when the
+// deck (Main + Extra) is over the cap. No file = stock behaviour.
+struct GenesysPoints {
+	bool loaded{ false };
+	uint32_t cap{ 0 };
+	std::unordered_map<uint32_t, uint32_t> points;
+	uint32_t GetPoints(const CardDataC* pcard) const {
+		if(!pcard)
+			return 0;
+		auto it = points.find(pcard->code);
+		if(it == points.end() && pcard->alias && (pcard->code == 0 || pcard->IsInArtworkOffsetRange()))
+			it = points.find(pcard->alias);
+		return it == points.end() ? 0 : it->second;
+	}
+	uint32_t GetDeckPoints(const Deck& deck) const {
+		uint32_t total = 0;
+		for(const auto* pcard : deck.main)
+			total += GetPoints(pcard);
+		for(const auto* pcard : deck.extra)
+			total += GetPoints(pcard);
+		return total;
+	}
+};
+
 class DeckManager {
 private:
 	size_t null_lflist_index = ~size_t();
@@ -45,6 +70,8 @@ public:
 	Deck sent_deck;
 	Deck pre_deck;
 	std::vector<LFList> _lfList;
+	GenesysPoints genesys;
+	bool LoadGenesys();
 	~DeckManager() {
 		ClearDummies();
 	}

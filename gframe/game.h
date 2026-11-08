@@ -540,6 +540,7 @@ public:
 	void PopupElement(irr::gui::IGUIElement* element, int hideframe = 0);
 	void WaitFrameSignal(int frame, std::unique_lock<epro::mutex>& _lck);
 	void DrawThumb(const CardDataC* cp, irr::core::vector2di pos, LFList* lflist, bool drag = false, const irr::core::recti* cliprect = nullptr, bool loadimage = true);
+	void DrawGenesysBadge(uint32_t points, const irr::core::recti& loc, const irr::core::recti* cliprect);
 	void DrawDeckBd();
 	void SaveConfig();
 	struct RepoGui {

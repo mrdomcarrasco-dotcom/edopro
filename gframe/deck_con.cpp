@@ -71,6 +71,7 @@ void DeckBuilder::Initialize(bool refresh) {
 	mainGame->btnHandTestSettings->setVisible(true);
 	mainGame->btnYdkeManage->setVisible(true);
 	filterList = &gdeckManager->_lfList[mainGame->cbDBLFList->getSelected()];
+	gdeckManager->LoadGenesys(); // Progression Series: pick up points the app rewrote since EDOPRO started
 	if(refresh) {
 		ClearSearch();
 	} else if(results.size()) {

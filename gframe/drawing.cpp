@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <cmath>
 #include "game_config.h"
 #include <irrlicht.h>
 #include "game.h"
@@ -1179,6 +1181,53 @@ void Game::WaitFrameSignal(int frame, std::unique_lock<epro::mutex>& _lck) {
 	signalFrame = (gGameConfig->quick_animation && frame >= 12) ? 12 * 1000 / 60 : frame * 1000 / 60;
 	frameSignal.Wait(_lck);
 }
+// Progression Series: a round Genesys points badge, coloured by cost like the app's card badges
+static irr::video::ITexture* GetGenesysDotTexture(irr::video::IVideoDriver* driver) {
+	static irr::video::ITexture* texture = nullptr;
+	if(texture)
+		return texture;
+	constexpr irr::u32 size = 64;
+	auto* img = driver->createImage(irr::video::ECF_A8R8G8B8, { size, size });
+	if(!img)
+		return nullptr;
+	const float center = (size - 1) / 2.0f, radius = size / 2.0f - 1.0f;
+	for(irr::u32 y = 0; y < size; ++y) {
+		for(irr::u32 x = 0; x < size; ++x) {
+			const float dx = x - center, dy = y - center;
+			float alpha = radius + 0.5f - std::sqrt(dx * dx + dy * dy);
+			alpha = alpha < 0.0f ? 0.0f : (alpha > 1.0f ? 1.0f : alpha);
+			img->setPixel(x, y, irr::video::SColor(static_cast<irr::u32>(alpha * 255.0f), 255, 255, 255));
+		}
+	}
+	texture = driver->addTexture("genesys_points_dot", img);
+	img->drop();
+	return texture;
+}
+static irr::video::SColor GenesysTierColor(uint32_t points) {
+	if(points >= 30)
+		return irr::video::SColor(255, 214, 51, 108);
+	if(points >= 20)
+		return irr::video::SColor(255, 232, 96, 44);
+	if(points >= 10)
+		return irr::video::SColor(255, 240, 150, 40);
+	return irr::video::SColor(255, 90, 140, 200);
+}
+void Game::DrawGenesysBadge(uint32_t points, const irr::core::recti& loc, const irr::core::recti* cliprect) {
+	auto* dot = GetGenesysDotTexture(driver);
+	if(!dot)
+		return;
+	const irr::video::SColor white[4]{ 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff };
+	const auto tier = GenesysTierColor(points);
+	const irr::video::SColor inner[4]{ tier, tier, tier, tier };
+	const auto border = std::max(1, loc.getWidth() / 12);
+	const irr::core::recti inner_loc(loc.UpperLeftCorner.X + border, loc.UpperLeftCorner.Y + border, loc.LowerRightCorner.X - border, loc.LowerRightCorner.Y - border);
+	imageManager.draw2DImageFilterScaled(dot, loc, irr::core::recti(0, 0, 64, 64), cliprect, white, true);
+	imageManager.draw2DImageFilterScaled(dot, inner_loc, irr::core::recti(0, 0, 64, 64), cliprect, inner, true);
+	const auto text = epro::to_wstring(points);
+	const irr::core::recti shadow(inner_loc.UpperLeftCorner.X + 1, inner_loc.UpperLeftCorner.Y + 1, inner_loc.LowerRightCorner.X + 1, inner_loc.LowerRightCorner.Y + 1);
+	adFont->drawustring(text, shadow, 0xff280a14, true, true, cliprect);
+	adFont->drawustring(text, inner_loc, 0xffffffff, true, true, cliprect);
+}
 void Game::DrawThumb(const CardDataC* cp, irr::core::vector2di pos, LFList* lflist, bool drag, const irr::core::recti* cliprect, bool load_image) {
 	auto code = cp->code;
 	auto flit = lflist->GetLimitationIterator(cp);
@@ -1201,7 +1250,9 @@ void Game::DrawThumb(const CardDataC* cp, irr::core::vector2di pos, LFList* lfli
 		otloc = irr::core::recti(pos.X + 7, pos.Y + 50 * window_scale.Y, pos.X + 37 * window_scale.X, pos.Y + 65 * window_scale.Y);
 	}
 	driver->draw2DImage(img, dragloc, irr::core::recti(0, 0, size.Width, size.Height), cliprect);
+	bool drew_limit = false;
 	if(!is_siding) {
+		drew_limit = true;
 		switch(count) {
 			case -1:
 			case 0:
@@ -1214,11 +1265,24 @@ void Game::DrawThumb(const CardDataC* cp, irr::core::vector2di pos, LFList* lfli
 				imageManager.draw2DImageFilterScaled(imageManager.tLim, limitloc, irr::core::recti(0, 64, 64, 128), cliprect, 0, true);
 				break;
 			default:
+				drew_limit = false;
 				if(cp->ot & SCOPE_LEGEND) {
+					drew_limit = true;
 					imageManager.draw2DImageFilterScaled(imageManager.tLim, limitloc, irr::core::recti(64, 64, 128, 128), cliprect, 0, true);
 				}
 				break;
 		}
+	}
+	// Genesys points where the limit icon goes; beside it when the card also shows a limit icon
+	if(gdeckManager->genesys.loaded) {
+		if(const auto points = gdeckManager->genesys.GetPoints(cp)) {
+			auto badgeloc = limitloc;
+			if(drew_limit)
+				badgeloc += irr::core::vector2di(dragloc.getWidth() - limitloc.getWidth(), 0);
+			DrawGenesysBadge(points, badgeloc, cliprect);
+		}
+	}
+	if(!is_siding) {
 #define IDX(scope,idx) case SCOPE_##scope:\
 							index = idx;\
 							goto draw;
@@ -1265,6 +1329,14 @@ void Game::DrawDeckBd() {
 
 		const auto main_deck_size_str = GetDeckSizeStr(current_deck.main, gdeckManager->pre_deck.main);
 		DrawShadowText(numFont, main_deck_size_str, Resize(379, 137, 439, 157), Resize(1, 1, 1, 1), 0xffffffff, 0xff000000, false, true);
+
+		if(gdeckManager->genesys.loaded) {
+			const auto points = gdeckManager->genesys.GetDeckPoints(current_deck);
+			const auto cap = gdeckManager->genesys.cap;
+			const auto genesys_str = epro::format(L"Genesys {}/{}", points, cap);
+			const irr::video::SColor genesys_color = (cap && points > cap) ? 0xffff4040 : 0xffffffff;
+			DrawShadowText(textFont, genesys_str, Resize(425, 136, 560, 156), Resize(1, 1, 1, 1), genesys_color, 0xff000000, false, true);
+		}
 
 		const auto main_types_count_str = epro::format(L"{} {} {} {} {} {}",
 													  gDataManager->GetSysString(1312), deckBuilder.main_monster_count,

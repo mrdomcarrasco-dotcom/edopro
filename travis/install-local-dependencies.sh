@@ -59,14 +59,14 @@ if [[ "$TARGET_OS" == "windows" ]]; then
     rm -rf upx-3.96-win64
     rm upx-3.96-win64.zip
 
-    curl --retry 5 --connect-timeout 30 --location --remote-header-name --remote-name https://github.com/edo9300/irrlicht1-8-4/archive/1.9-custom.zip
+    curl --retry 5 --connect-timeout 30 --location --remote-header-name --remote-name https://github.com/edo9300/irrlicht1-8-4/archive/47264fc2bc3223d110c589c9ffe4339d696a3dd0.zip
     echo Extracting irrlicht... this may take some time.
-    unzip -uo irrlicht1-8-4-1.9-custom.zip > /dev/null
-    mv irrlicht1-8-4-1.9-custom/include irrlicht/include
+    unzip -uo irrlicht1-8-4-47264fc2bc3223d110c589c9ffe4339d696a3dd0.zip > /dev/null
+    mv irrlicht1-8-4-47264fc2bc3223d110c589c9ffe4339d696a3dd0/include irrlicht/include
     # Technically, only code files need to be moved, and code files in lzma and aesGladman, but this is easier
-    mv irrlicht1-8-4-1.9-custom/source/Irrlicht irrlicht/src
-    rm -rf irrlicht1-8-4-1.9-custom
-    rm irrlicht1-8-4-1.9-custom.zip
+    mv irrlicht1-8-4-47264fc2bc3223d110c589c9ffe4339d696a3dd0/source/Irrlicht irrlicht/src
+    rm -rf irrlicht1-8-4-47264fc2bc3223d110c589c9ffe4339d696a3dd0
+    rm irrlicht1-8-4-47264fc2bc3223d110c589c9ffe4339d696a3dd0.zip
     # We will build against vcpkg-provided versions of these libs
     rm -rf irrlicht/src/bzip2 irrlicht/src/jpeglib irrlicht/src/libpng irrlicht/src/zlib
 fi
