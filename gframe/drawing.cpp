@@ -1250,9 +1250,7 @@ void Game::DrawThumb(const CardDataC* cp, irr::core::vector2di pos, LFList* lfli
 		otloc = irr::core::recti(pos.X + 7, pos.Y + 50 * window_scale.Y, pos.X + 37 * window_scale.X, pos.Y + 65 * window_scale.Y);
 	}
 	driver->draw2DImage(img, dragloc, irr::core::recti(0, 0, size.Width, size.Height), cliprect);
-	bool drew_limit = false;
 	if(!is_siding) {
-		drew_limit = true;
 		switch(count) {
 			case -1:
 			case 0:
@@ -1265,20 +1263,20 @@ void Game::DrawThumb(const CardDataC* cp, irr::core::vector2di pos, LFList* lfli
 				imageManager.draw2DImageFilterScaled(imageManager.tLim, limitloc, irr::core::recti(0, 64, 64, 128), cliprect, 0, true);
 				break;
 			default:
-				drew_limit = false;
 				if(cp->ot & SCOPE_LEGEND) {
-					drew_limit = true;
 					imageManager.draw2DImageFilterScaled(imageManager.tLim, limitloc, irr::core::recti(64, 64, 128, 128), cliprect, 0, true);
 				}
 				break;
 		}
 	}
-	// Genesys points where the limit icon goes; beside it when the card also shows a limit icon
+	// Genesys points in the top right corner, the same row as the limit icon (which keeps the top left, so the
+	// "1"/"2" owned-copies icons stay visible). It sits exactly over the badge the Progression app paints on its
+	// card pictures, so a card never shows two.
 	if(gdeckManager->genesys.loaded) {
 		if(const auto points = gdeckManager->genesys.GetPoints(cp)) {
-			auto badgeloc = limitloc;
-			if(drew_limit)
-				badgeloc += irr::core::vector2di(dragloc.getWidth() - limitloc.getWidth(), 0);
+			const auto w = dragloc.getWidth();
+			const irr::core::recti badgeloc(dragloc.UpperLeftCorner.X + w * 20 / 44, dragloc.UpperLeftCorner.Y,
+											dragloc.LowerRightCorner.X, dragloc.UpperLeftCorner.Y + w * 24 / 44);
 			DrawGenesysBadge(points, badgeloc, cliprect);
 		}
 	}
