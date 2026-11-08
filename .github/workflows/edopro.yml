@@ -13,19 +13,31 @@ env:
   COVERS_URL: https://pics.projectignis.org:2096/pics/cover/{}.jpg
 jobs:
   Windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # v142 toolset (VS2019) libraries, built with the toolset the runner still ships
+          - name: vs2019
+            vs_gen: vs2019
+            zip: installed_x86-windows-static-vs2019.zip
+          # the official release's setup: premake vs2017 + --oldwindows (VS_GEN empty)
+          - name: vs2017
+            vs_gen: ""
+            zip: installed_x86-windows-static.zip
     runs-on: windows-2022
     env:
       TRAVIS_OS_NAME: windows
       DXSDK_DIR: /c/d3d9sdk/
       VCPKG_ROOT: /c/vcpkg2
-      VS_GEN: vs2022
+      VS_GEN: ${{ matrix.vs_gen }}
       BUILD_CONFIG: release
       ARCH: x86
     steps:
     - name: Set custom env vars
       shell: bash
       run: |
-        echo "VCPKG_CACHE_ZIP_URL=$DEPENDENCIES_BASE_URL/installed_x86-windows-static-vs2022.zip" >> $GITHUB_ENV
+        echo "VCPKG_CACHE_ZIP_URL=$DEPENDENCIES_BASE_URL/${{ matrix.zip }}" >> $GITHUB_ENV
     - name: Add msbuild to PATH
       uses: microsoft/setup-msbuild@v2
     - uses: actions/checkout@v4
@@ -42,7 +54,7 @@ jobs:
       run: ./travis/build.sh
     - uses: actions/upload-artifact@v4
       with:
-        name: windows-x86
+        name: windows-x86-${{ matrix.name }}
         path: |
           bin/release/ygoprodll.exe
           bin/release/ygoprodll.pdb
