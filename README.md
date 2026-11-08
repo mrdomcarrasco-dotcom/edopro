@@ -1,3 +1,22 @@
+# EDOPro Genesys (Progression Series fork)
+
+This branch (`genesys`) is EDOPro **41.0.2** plus Genesys points in the deck editor, for a private Yu-Gi-Oh!
+Progression Series. Nothing else changes.
+
+- `genesys.conf` in the EDOPRO folder: a `$genesys <cap>` line, then `<card code> <points>` lines (`#` comments).
+  Loaded at startup and every time the deck editor opens. No file = stock behaviour.
+- Each card with points gets a round badge (top right; on the left edge, under the limit icon, in rows where cards
+  overlap). Alternate artworks use their main card's points.
+- The Main Deck bar shows `Genesys <points>/<cap>` for Main + Extra (the Side Deck doesn't count), red when over.
+- In a room hosted with a banlist whose name starts with `PROG - `, Ready is refused while the deck is over the cap.
+
+Builds: GitHub Actions on this branch (Windows x86 with the VS2019 toolset, macOS universal), dependencies pinned to
+the 41.0.2 era. The card picture URLs are the official ones; the auto-updater URL is left out on purpose so the client
+doesn't replace itself with the stock build. Install = replace only the program file (`EDOPro.exe` on Windows,
+`EDOPro.app/Contents/MacOS/EDOPro` on macOS) after backing up the original.
+
+---
+
 # [Project Ignis](https://github.com/ProjectIgnis): EDOPro
 
 The bleeding-edge automatic duel simulator, a fork of the [YGOPro client](https://github.com/Fluorohydride/ygopro).
