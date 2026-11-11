@@ -740,6 +740,16 @@ void Game::DrawStatus(ClientCard* pcard) {
 	const auto padding_1111 = Resize(1, 1, 1, 1);
 	const auto padding_1011 = Resize(1, 0, 1, 1);
 
+	{
+		// Progression: a dark pill behind the ATK / DEF line so it reads over any card art
+		const auto def = adFont->getDimensionustring(pcard->defstring);
+		const int padx = ResizeX(3), pady = ResizeY(1);
+		if(pcard->type & TYPE_LINK)
+			mdfx::Pill(irr::core::recti(x1 - atk.Width / 2 - padx, y1 - pady, x1 + atk.Width / 2 + padx, y1 + atk.Height + pady));
+		else
+			mdfx::Pill(irr::core::recti(x1 - half_slash_width - atk.Width - slash.Width - padx, y1 - pady,
+										x1 + half_slash_width + slash.Width + def.Width + padx, y1 + atk.Height + pady));
+	}
 	if(pcard->type & TYPE_LINK) {
 		DrawShadowText(adFont, pcard->atkstring, irr::core::recti(x1 - std::floor(atk.Width / 2), y1, x1 + std::floor(atk.Width / 2), y1 + 1),
 					   padding_1111, GetAtkColor(), 0xff000000, true);
@@ -798,6 +808,12 @@ void Game::DrawStackIndicator(epro::wstringview text, const Materials::QuadVerte
 	float x0 = (v[0].Pos.X + v[1].Pos.X) / 2.0f;
 	float y0 = (opponent) ? v[0].Pos.Y : v[2].Pos.Y;
 	auto coords = device->getSceneManager()->getSceneCollisionManager()->getScreenCoordinatesFrom3DPosition({ x0, y0, 0 });
+	{
+		const auto nd = numFont->getDimensionustring(utext);
+		const int padx = ResizeX(5), pady = ResizeY(1);
+		mdfx::Pill(irr::core::recti(coords.X - (int)nd.Width / 2 - padx, coords.Y - (int)nd.Height / 2 - pady,
+									coords.X + (int)nd.Width / 2 + padx, coords.Y + (int)nd.Height / 2 + pady));
+	}
 	DrawShadowText(numFont, utext, irr::core::recti(coords.X - dim.Width, coords.Y - dim.Height, coords.X + dim.Width, coords.Y + dim.Height),
 				   Resize(0, 1, 0, 1), skin::DUELFIELD_STACK_VAL, 0xff000000);
 }

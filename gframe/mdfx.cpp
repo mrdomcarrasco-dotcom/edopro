@@ -1118,11 +1118,11 @@ void Plate(float x0, float y0, float w, float h, bool mirrored, int lp, int star
 	const video::SColor g1 = p == 0 ? video::SColor(255, 255, 220, 120) : video::SColor(255, 240, 70, 70);
 	seg(0.f, gauge, mirrored ? g1 : g0, mirrored ? g0 : g1);
 	// LP numerals, right-aligned for you, left-aligned for the opponent
-	auto* f = FitFont(bh * 0.62f);
+	auto* f = FitFont((gy0 - by0) * 0.95f);
 	const std::wstring lps = std::to_wstring(std::max(0, lp));
 	const auto d = TextSize(f, lps);
-	const float ny = by0 + bh * 0.06f;
-	const float nx = mirrored ? bx0 + (bx1 - bx0) * 0.20f : bx1 - (bx1 - bx0) * 0.08f - d.Width;
+	const float ny = by0 + (gy0 - by0 - d.Height) * 0.5f;
+	const float nx = mirrored ? bx0 + (bx1 - bx0) * 0.16f : bx1 - (bx1 - bx0) * 0.10f - d.Width;
 	video::SColor nc = gauge < 0.25f ? video::SColor(255, 255, 140, 120) : video::SColor(255, 250, 244, 228);
 	nc = lerpc(nc, video::SColor(255, 255, 70, 60), hitFlash[p]);
 	Text(f, lps, nx, ny, nc, 0.85f, 2);
@@ -1130,12 +1130,14 @@ void Plate(float x0, float y0, float w, float h, bool mirrored, int lp, int star
 	const std::wstring tag = L"LP";
 	const auto td = TextSize(F.name ? F.name : F.statline, tag);
 	auto* nf = F.name ? F.name : F.statline;
-	const float tagX = mirrored ? bx0 + (bx1 - bx0) * 0.06f : nx - td.Width - h * 0.10f;
+	const float tagX = mirrored ? bx0 + (bx1 - bx0) * 0.06f : nx - td.Width - h * 0.08f;
 	Text(nf, tag, tagX, ny + d.Height - td.Height - 2.f, { 255, 232, 196, 106 }, 0.8f, 1);
 	if(!name.empty()) {
+		// name in the bar, on the portrait side, above the gauge
 		const auto nd = TextSize(nf, name);
-		const float nmx = mirrored ? bx1 - (bx1 - bx0) * 0.04f - nd.Width : bx0 + (bx1 - bx0) * 0.05f;
-		Text(nf, name, nmx, y0 + h + 2.f, active ? video::SColor(255, 250, 240, 215) : video::SColor(255, 170, 160, 140), 0.85f, 1);
+		const float nmx = mirrored ? bx1 - (bx1 - bx0) * 0.05f - nd.Width : bx0 + (bx1 - bx0) * 0.05f;
+		const float nmy = gy0 - nd.Height - bh * 0.06f;
+		Text(nf, name, nmx, nmy, active ? video::SColor(255, 250, 240, 215) : video::SColor(255, 175, 165, 145), 0.85f, 1);
 	}
 }
 } // namespace
@@ -1164,6 +1166,18 @@ bool DrawHud(const HudInfo& info) {
 		Text(f, tn, mx - d.Width / 2.f, my - d.Height / 2.f - 1.f, { 255, 250, 236, 200 }, 0.9f, 2);
 	}
 	return true;
+}
+
+void Pill(const core::recti& r) {
+	if(!Enabled()) return;
+	const s32 x0 = r.UpperLeftCorner.X, y0 = r.UpperLeftCorner.Y, x1 = r.LowerRightCorner.X, y1 = r.LowerRightCorner.Y;
+	if(x1 - x0 < 2 || y1 - y0 < 2) return;
+	drv->draw2DRectangle(core::rect<s32>(x0 + 1, y0, x1 - 1, y1), video::SColor(215, 10, 12, 17), video::SColor(215, 10, 12, 17),
+						 video::SColor(215, 4, 5, 8), video::SColor(215, 4, 5, 8));
+	drv->draw2DRectangle(video::SColor(215, 7, 8, 12), core::rect<s32>(x0, y0 + 1, x0 + 1, y1 - 1));
+	drv->draw2DRectangle(video::SColor(215, 7, 8, 12), core::rect<s32>(x1 - 1, y0 + 1, x1, y1 - 1));
+	drv->draw2DLine({ x0 + 2, y0 }, { x1 - 2, y0 }, video::SColor(170, 201, 163, 82));
+	drv->draw2DLine({ x0 + 2, y1 - 1 }, { x1 - 2, y1 - 1 }, video::SColor(120, 140, 110, 50));
 }
 
 // --- test aids ------------------------------------------------------------------------------------
