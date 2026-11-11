@@ -617,7 +617,8 @@ int Destroy(const core::vector3df& pos) {
 
 int Result(int outcome, const std::wstring& reason) {
 	if(!Enabled() || outcome < 1 || outcome > 2) return 0;
-	if(!Ui(outcome == 1 ? "victory" : "defeat")) return 0;
+	// duel thread: check the file only, the texture loads on the main thread when drawn
+	if(!Utils::FileExists(epro::format(EPRO_TEXT("./pics/mdfx/ui/{}.png"), outcome == 1 ? EPRO_TEXT("victory") : EPRO_TEXT("defeat")))) return 0;
 	ov = Overlay{};
 	ov.kind = Overlay::RESULT;
 	ov.dur = 2900.f;
