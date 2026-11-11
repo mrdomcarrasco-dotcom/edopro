@@ -302,9 +302,8 @@ void Title(video::ITexture* tex, float cx, float cy, float h, float a, float sca
 	}
 }
 
-void PlayFx(const char* name) {
-	if(gSoundManager)
-		gSoundManager->PlayFx(name);
+bool PlayFx(const char* name) {
+	return gSoundManager && gSoundManager->PlayFx(name);
 }
 
 float S() { return drv->getScreenSize().Height / 640.f; }
@@ -486,6 +485,23 @@ void DropSceneTex() {
 	sceneTexFrame = -1;
 	sceneTexCode = 0;
 }
+// draw frame n of an authored scene full screen (cover), alpha a; streams one texture at a time
+void SceneFrame(uint32_t code, int frame, float a) {
+	if(sceneTexCode != code || sceneTexFrame != frame) {
+		auto* next = LoadFile(ScenePath(code, frame));
+		if(next) {
+			if(sceneTex && sceneTex != next) drv->removeTexture(sceneTex);
+			sceneTex = next;
+			sceneTexFrame = frame;
+			sceneTexCode = code;
+		}
+	}
+	if(!sceneTex || a <= 0.f) return;
+	const auto ts = sceneTex->getOriginalSize();
+	const float W = SW(), H = SH();
+	const float k = std::max(W / ts.Width, H / ts.Height);
+	Quad(sceneTex, Center(), ts.Width * k, ts.Height * k, 0.f, col(a, { 255, 255, 255, 255 }), false);
+}
 } // namespace
 
 int StartCutin(Cutin kind, uint32_t code, bool opponent) {
@@ -527,7 +543,11 @@ int StartCutin(Cutin kind, uint32_t code, bool opponent) {
 	case Cutin::RA: ov.tint = { 255, 255, 214, 100 }; ov.plate = { 255, 20, 40, 110 }; break;
 	default: ov.tint = AttributeTint(code); ov.plate = { 255, 20, 40, 110 }; break;
 	}
-	PlayFx("cutin");
+	{
+		const bool god = kind == Cutin::OBELISK || kind == Cutin::SLIFER || kind == Cutin::RA;
+		if(!(ov.video > 0 && PlayFx(god ? "god" : "ace")))
+			PlayFx("cutin");
+	}
 	return Frames(ov.dur);
 }
 
@@ -758,8 +778,9 @@ void AssembleWord(const std::wstring& word, float t, float tin, float tout, floa
 		const float h = 0.17f * SH();
 		const float scale = (1.6f - 0.6f * p) * (1.f + 0.12f * out);
 		const float cy = y + h * 0.35f - 20.f * S() * out;
-		Quad(tGlow, { SW() / 2.f, cy }, h * 6.f, h * 2.2f, 0.f, addc(a * (0.45f + 0.5f * (1.f - p)), glow), true);
-		Title(img, SW() / 2.f, cy, h, a, scale, (t - 260.f) / 420.f);
+		const float cx = SW() * 0.59f;
+		Quad(tGlow, { cx, cy }, h * 6.f, h * 2.2f, 0.f, addc(a * (0.45f + 0.5f * (1.f - p)), glow), true);
+		Title(img, cx, cy, h, a, scale, (t - 260.f) / 420.f);
 		return;
 	}
 	if(!F.big) return;
@@ -791,7 +812,7 @@ void ChainStack(const std::vector<uint32_t>& codes, int upto, float a, float app
 	const int first = std::max(0, n - 4);
 	const int shown = n - first;
 	const float s = S();
-	const auto c = Center();
+	const auto c = Center() + core::vector2df(0.09f * SW(), 0.f); // the board sits right of the card-info panel
 	std::vector<core::vector2df> at;
 	for(int i = 0; i < shown; ++i) {
 		const float k = shown == 1 ? 0.f : (float)i / (shown - 1) - 0.5f;
@@ -825,7 +846,7 @@ void ChainStack(const std::vector<uint32_t>& codes, int upto, float a, float app
 		if(lit && flash > 0.f) Quad(art, Full(art), at[i], w, h, rot, addc(flash * 0.8f, { 255, 255, 255, 255 }), true);
 		if(auto* digit = link <= 6 ? Ui(epro::format("n{}", link)) : nullptr) {
 			const core::vector2df corner = at[i] + core::vector2df((i % 2 ? 0.46f : -0.46f) * w, (i % 2 ? 0.34f : -0.40f) * h);
-			const float dh = 0.62f * h * (1.f + 0.4f * (1.f - pk));
+			const float dh = 0.46f * h * (1.f + 0.4f * (1.f - pk));
 			Quad(digit, corner, dh, dh, 0.f, col(aa, { 255, 255, 255, 255 }), false);
 		} else if(F.num) {
 			const std::wstring num = epro::format(L"{}", link);
@@ -1059,9 +1080,15 @@ void DrawExodia() {
 	} else {
 		ov.acc = 0.f;
 	}
+	// authored scene (pics/mdfx/scene/33396948/): Exodia rises from the portal, 3800-9300, under the fire and flare
+	const int exFrames = SceneFrames(33396948);
+	if(exFrames > 0 && t > 3700.f && t < 9700.f) {
+		const int frame = std::min(exFrames, 1 + (int)(std::max(0.f, t - 3900.f) * SCENE_FPS / 1000.f));
+		SceneFrame(33396948, frame, smooth(3700.f, 4200.f, t) * (1.f - smooth(9350.f, 9650.f, t)));
+	}
 	// 3700-5750 a dark figure emerges in the fire; 5750 reveal slash; hold and push in
 	const auto headIllo = Illustration(33396948);
-	auto* head = headIllo.first;
+	auto* head = exFrames > 0 ? nullptr : headIllo.first;
 	if(head && t > 3700.f && t < 9600.f) {
 		const float appear = smooth(3700.f, 5000.f, t);
 		const float reveal = smooth(5750.f, 5900.f, t);
@@ -1185,7 +1212,7 @@ void Draw(scene::ISceneManager* smgr) {
 	if(ov.kind == Overlay::CHAIN || ov.kind == Overlay::RESOLVE)
 		FillRect(0, 0, (s32)W, (s32)H, col(0.42f * window(ov.t, 0.f, ov.dur, 100.f, 200.f), { 255, 10, 22, 48 }));
 	DrawFx(coll);
-	if(sceneTex && !(ov.kind == Overlay::CUTIN && ov.video > 0)) DropSceneTex();
+	if(sceneTex && !(ov.kind == Overlay::CUTIN && ov.video > 0) && ov.kind != Overlay::EXODIA) DropSceneTex();
 	switch(ov.kind) {
 	case Overlay::CUTIN: DrawCutin(); break;
 	case Overlay::SEAL: DrawSeal(); break;
