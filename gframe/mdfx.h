@@ -44,6 +44,8 @@ float PopScale(float from, float t, float dur);
 Cutin CutinFor(uint32_t code);
 int StartCutin(Cutin kind, uint32_t code, bool opponent);
 int ExodiaWin();
+// duel end: VICTORY / DEFEAT title over rays (outcome 1 = you win, 2 = you lose); 0 = not shown, use stock text
+int Result(int outcome, const std::wstring& reason);
 void Activate(const irr::core::vector3df& pos, bool monster);
 int ChainDisplay(const std::vector<uint32_t>& codes);
 int ResolveDisplay(const std::vector<uint32_t>& codes, int resolving, bool first);
@@ -71,6 +73,7 @@ void Pill(const irr::core::recti& r);
 // rendered duel frames there as PNGs every MDFX_CAPTURE_MS (default 100) ms.
 const char* AutoPuzzle();
 void DevCapture(bool inDuel);
+void DevDemo(bool inDuel); // MDFX_DEMO_CHAIN=<codes>: play CHAIN / RESOLVE once the duel is idle
 
 // --- main thread ---
 void Update(uint32_t delta_ms);

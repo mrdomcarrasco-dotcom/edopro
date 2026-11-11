@@ -1624,8 +1624,12 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		}
 		if(type == 0x10 && player < 2 && !mainGame->dInfo.isCatchingUp)
 			mainGame->WaitFrameSignal(mdfx::ExodiaWin(), lock);
-		mainGame->showcard = 101;
-		mainGame->WaitFrameSignal(120, lock);
+		if(const int frames = mainGame->dInfo.isCatchingUp ? 0 : mdfx::Result(mainGame->showcardcode, mainGame->dInfo.vic_string)) {
+			mainGame->WaitFrameSignal(frames, lock);
+		} else {
+			mainGame->showcard = 101;
+			mainGame->WaitFrameSignal(120, lock);
+		}
 		mainGame->dInfo.vic_string = L"";
 		mainGame->showcard = 0;
 		break;

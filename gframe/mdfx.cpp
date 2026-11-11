@@ -355,7 +355,7 @@ float dimT = -1.f;    // activation dim
 float clockMs = 0.f;  // free-running, for HUD pulses
 
 struct Overlay {
-	enum Kind : uint8_t { NONE, CUTIN, EXODIA, SEAL, CHAIN, RESOLVE, BANNER } kind = NONE;
+	enum Kind : uint8_t { NONE, CUTIN, EXODIA, SEAL, CHAIN, RESOLVE, BANNER, RESULT } kind = NONE;
 	float t = 0.f, dur = 0.f;
 	uint32_t code = 0;
 	Cutin cut = Cutin::NONE;
@@ -595,6 +595,17 @@ int Destroy(const core::vector3df& pos) {
 	return Frames(300.f);
 }
 
+int Result(int outcome, const std::wstring& reason) {
+	if(!Enabled() || outcome < 1 || outcome > 2) return 0;
+	if(!Ui(outcome == 1 ? "victory" : "defeat")) return 0;
+	ov = Overlay{};
+	ov.kind = Overlay::RESULT;
+	ov.dur = 2900.f;
+	ov.mine = outcome == 1;
+	ov.text = reason;
+	PlayFx(ov.mine ? "victory" : "defeat");
+	return Frames(ov.dur);
+}
 int PhaseBanner(const std::wstring& text, bool myTurn, bool turnChange) {
 	if(!Enabled()) return 0;
 	if(ov.kind != Overlay::NONE && ov.kind != Overlay::BANNER) return 0;
@@ -1139,6 +1150,32 @@ void DrawBanner() {
 
 } // namespace
 
+namespace {
+void DrawResult() {
+	const float t = ov.t, D = ov.dur, s = S();
+	const float W = SW(), H = SH();
+	const auto c = Center();
+	const float a = smooth(0.f, 300.f, t) * (1.f - smooth(D - 350.f, D, t));
+	FillRect(0, 0, (s32)W, (s32)H, col(0.72f * a, { 255, 2, 3, 6 }));
+	const video::SColor tint = ov.mine ? video::SColor(255, 255, 196, 90) : video::SColor(255, 200, 30, 30);
+	Quad(tRays, c, H * 1.9f, H * 1.9f, t * 0.00012f, addc(a * (ov.mine ? 0.5f : 0.3f), tint), true);
+	Quad(tGlow, c, W * 1.1f, H * 0.9f, 0.f, addc(a * 0.55f, tint), true);
+	if(auto* img = Ui(ov.mine ? "victory" : "defeat")) {
+		const float p = outQuint(t / 420.f);
+		const float h = 0.30f * H;
+		Title(img, c.X, c.Y - 0.04f * H, h, a, 1.35f - 0.35f * p, (t - 500.f) / 700.f);
+	}
+	if(!ov.text.empty() && F.statline) {
+		const auto d = TextSize(F.statline, ov.text);
+		Text(F.statline, ov.text, c.X - d.Width / 2.f, c.Y + 0.16f * H, col(a * smooth(400.f, 700.f, t), { 255, 240, 230, 205 }), a, 1);
+	}
+	if(ov.mine && ov.beat == 0 && t > 250.f) {
+		ov.beat = 1;
+		Burst(c, 90, { 255, 255, 214, 110 }, 520.f * s, 16.f * s, 1500.f, 1, 140.f * s);
+	}
+}
+} // namespace
+
 void Draw(scene::ISceneManager* smgr) {
 	if(!drv || !smgr) return;
 	auto* coll = smgr->getSceneCollisionManager();
@@ -1172,6 +1209,7 @@ void Draw(scene::ISceneManager* smgr) {
 		break;
 	}
 	case Overlay::BANNER: DrawBanner(); break;
+	case Overlay::RESULT: DrawResult(); break;
 	default: break;
 	}
 	DrawSparks();
@@ -1322,6 +1360,38 @@ void Pill(const core::recti& r) {
 	drv->draw2DLine({ x0 + 2, y1 - 1 }, { x1 - 2, y1 - 1 }, goldDim);
 	drv->draw2DLine({ x0, y0 + 2 }, { x0, y1 - 2 }, goldDim);
 	drv->draw2DLine({ x1 - 1, y0 + 2 }, { x1 - 1, y1 - 2 }, goldDim);
+}
+
+// MDFX_DEMO_CHAIN=<code>,<code>,...: once the duel has been idle a while, play CHAIN for 2 and 3 links, then
+// RESOLVE 3 -> 1, through the same overlay calls the duel thread uses (presentation test only).
+void DevDemo(bool inDuel) {
+	static const char* env = std::getenv("MDFX_DEMO_CHAIN");
+	if(!env || !*env || !inDuel || !drv) return;
+	static std::vector<uint32_t> codes;
+	static int step = 0;
+	static float idleSince = -1.f;
+	if(codes.empty()) {
+		std::string cur;
+		for(const char* c = env;; ++c) {
+			if(*c == ',' || *c == 0) { if(!cur.empty()) codes.push_back((uint32_t)std::strtoul(cur.c_str(), nullptr, 10)); cur.clear(); if(!*c) break; }
+			else cur += *c;
+		}
+		if(codes.size() < 3) { codes.clear(); return; }
+	}
+	if(step > 5) return;
+	if(ov.kind != Overlay::NONE) { idleSince = -1.f; return; }
+	if(idleSince < 0.f) { idleSince = clockMs; return; }
+	if(clockMs - idleSince < (step == 0 ? 6000.f : 250.f)) return;
+	idleSince = -1.f;
+	const std::vector<uint32_t> two(codes.begin(), codes.begin() + 2), three(codes.begin(), codes.begin() + 3);
+	switch(step++) {
+	case 0: ChainDisplay(two); break;
+	case 1: ChainDisplay(three); break;
+	case 2: ResolveDisplay(three, 3, true); break;
+	case 3: ResolveDisplay(three, 2, false); break;
+	case 4: ResolveDisplay(three, 1, false); break;
+	default: break;
+	}
 }
 
 // --- test aids ------------------------------------------------------------------------------------

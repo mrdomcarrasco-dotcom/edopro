@@ -2232,6 +2232,7 @@ bool Game::MainLoop() {
 				stHintMsg->setText(gDataManager->GetSysString(1392).data());
 			}
 		}
+		mdfx::DevDemo(dInfo.isInDuel);
 		mdfx::DevCapture(dInfo.isInDuel);
 		driver->endScene();
 		gMutex.unlock();
