@@ -1441,22 +1441,28 @@ bool LpNumber(const std::wstring& text, int player, int framesLeft) {
 	if(glyphs.empty()) return false;
 	const float k = 1.f - clamp01((float)framesLeft / (float)std::max(1, LpRollFrames()));
 	const float W = SW(), H = SH();
-	const float h = 0.20f * H;
+	const float h = 0.17f * H;
 	const float punch = 1.f + 0.9f * (1.f - outCubic(k / 0.14f));
+	// glyph box: digits keep their aspect at height h; signs are capped to a dash/cross width
+	auto box = [&](video::ITexture* g) {
+		const auto sz = g->getOriginalSize();
+		float w = h * 0.78f * sz.Width / (float)sz.Height, hh = h;
+		if(w > h * 0.62f) { w = h * 0.55f; hh = w * sz.Height / (float)sz.Width; }
+		return core::vector2df(w, hh);
+	};
 	const float a = clamp01(k / 0.05f) * (1.f - smooth(0.78f, 1.f, k));
 	const float lift = smooth(0.7f, 1.f, k) * 0.06f * H;
 	const float cy = (player == 0 ? 0.66f : 0.30f) * H - lift;
 	const float cx = 0.6f * W;
 	float total = 0.f;
-	for(auto* g : glyphs) { const auto sz = g->getOriginalSize(); total += h * 0.78f * sz.Width / (float)sz.Height; }
+	for(auto* g : glyphs) total += box(g).X;
 	const float shake = (1.f - clamp01(k / 0.25f)) * 10.f * S();
 	float x = cx - total * punch / 2.f + frand(-shake, shake);
 	Quad(tGlow, { cx, cy }, total * 1.8f, h * 1.6f, 0.f, addc(a * 0.5f, gain ? video::SColor(255, 255, 210, 90) : video::SColor(255, 255, 40, 20)), true);
 	for(auto* g : glyphs) {
-		const auto sz = g->getOriginalSize();
-		const float w = h * 0.78f * sz.Width / (float)sz.Height * punch;
-		Quad(g, { x + w / 2.f, cy }, w, h * punch, 0.f, col(a, { 255, 255, 255, 255 }), false);
-		x += w;
+		const auto b = box(g) * punch;
+		Quad(g, { x + b.X / 2.f, cy }, b.X, b.Y, 0.f, col(a, { 255, 255, 255, 255 }), false);
+		x += b.X;
 	}
 	if(k < 0.12f) Quad(tGlow, { cx, cy }, total * 2.4f, h * 2.f, 0.f, addc((1.f - k / 0.12f) * 0.8f, { 255, 255, 255, 255 }), true);
 	return true;
