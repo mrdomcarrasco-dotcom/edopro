@@ -2,6 +2,7 @@
 #include "mdfx.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cwctype>
 #include <map>
 #include <random>
@@ -321,6 +322,7 @@ float shakePx = 0.f, shakeT = 0.f, shakeDur = 1.f;
 core::vector2df shakeNow;
 float dmgFrame = 0.f; // crimson frame, ms left
 float dimT = -1.f;    // activation dim
+float clockMs = 0.f;  // free-running, for HUD pulses
 
 struct Overlay {
 	enum Kind : uint8_t { NONE, CUTIN, EXODIA, SEAL, CHAIN, RESOLVE, BANNER } kind = NONE;
@@ -549,6 +551,8 @@ void Clear() {
 void Update(uint32_t delta_ms) {
 	if(!drv) return;
 	const float dt = (float)delta_ms;
+	clockMs += dt;
+	if(clockMs > 1e7f) clockMs = 0.f;
 	for(auto& f : fxs) f.t += dt;
 	fxs.erase(std::remove_if(fxs.begin(), fxs.end(), [](const Fx& f) { return f.t >= f.dur; }), fxs.end());
 	for(auto& sp : sparks) {
@@ -1041,6 +1045,146 @@ void Draw(scene::ISceneManager* smgr) {
 		const float pink = clamp01((dmgFrame - 700.f) / 500.f);
 		if(pink > 0.f) Quad(tGlow, { W / 2.f, H * 1.05f }, W * 1.4f, H * 0.9f, 0.f, addc(pink * 0.6f, { 255, 255, 150, 180 }), true);
 	}
+}
+
+// --- duel HUD -------------------------------------------------------------------------------------
+namespace {
+struct HudArt {
+	bool tried = false;
+	video::ITexture *plate = nullptr, *you = nullptr, *opp = nullptr, *turn = nullptr;
+} hud;
+float trail[2] = { 1.f, 1.f }, trailHold[2] = { 0.f, 0.f }, lastGauge[2] = { 1.f, 1.f }, hitFlash[2] = { 0.f, 0.f };
+uint32_t lastClock = 0;
+
+void LoadHud() {
+	if(hud.tried) return;
+	hud.tried = true;
+	hud.plate = LoadFile(EPRO_TEXT("./pics/mdfx/hud/plate.png"));
+	hud.you = LoadFile(EPRO_TEXT("./pics/mdfx/hud/avatar_you.png"));
+	hud.opp = LoadFile(EPRO_TEXT("./pics/mdfx/hud/avatar_opp.png"));
+	hud.turn = LoadFile(EPRO_TEXT("./pics/mdfx/hud/turn.png"));
+}
+gui::CGUITTFont* FitFont(float maxH) {
+	gui::CGUITTFont* best = nullptr;
+	u32 bestH = 0;
+	for(auto* f : { F.big, F.lp, F.plate, F.num }) {
+		if(!f) continue;
+		const u32 h = TextSize(f, L"0123456789").Height;
+		if(h <= maxH && h > bestH) { best = f; bestH = h; }
+	}
+	return best ? best : F.plate;
+}
+// one plate: x0,y0 top-left, w,h size; mirrored = opponent (ring on the right)
+void Plate(float x0, float y0, float w, float h, bool mirrored, int lp, int startlp, const std::wstring& name,
+		   bool active, int p, float dtMs) {
+	const float pulse = 0.5f + 0.5f * std::sin(clockMs * 0.004f);
+	const float cx = x0 + w / 2.f, cy = y0 + h / 2.f;
+	// turn player: soft turquoise aura behind the plate
+	if(active)
+		Quad(tGlow, { cx, cy }, w * 1.25f, h * 2.1f, 0.f, addc(0.30f + 0.18f * pulse, { 255, 70, 220, 210 }), true);
+	// portrait inside the ring (ring centre at 12.2% of the plate width)
+	const float ringX = mirrored ? x0 + w * (1.f - 0.122f) : x0 + w * 0.122f;
+	auto* avatar = p == 0 ? hud.you : hud.opp;
+	Quad(avatar, { ringX, cy }, h * 0.86f, h * 0.86f, 0.f, video::SColor(255, 255, 255, 255), false);
+	// the plate itself (mirrored by flipping the source rect)
+	const auto ps = hud.plate->getOriginalSize();
+	const core::rect<s32> src = mirrored ? core::rect<s32>(ps.Width, 0, 0, ps.Height) : core::rect<s32>(0, 0, ps.Width, ps.Height);
+	const u8 dim = active ? 255 : 205;
+	Quad(hud.plate, src, { cx, cy }, w, h, 0.f, video::SColor(255, dim, dim, dim), false);
+	// bar region: x 25%..93% (mirrored 7%..75%), y 21%..87%
+	const float bx0 = mirrored ? x0 + w * 0.07f : x0 + w * 0.255f;
+	const float bx1 = mirrored ? x0 + w * 0.745f : x0 + w * 0.93f;
+	const float by0 = y0 + h * 0.21f, by1 = y0 + h * 0.87f, bh = by1 - by0;
+	// LP gauge with a lagging damage trail
+	const float gauge = startlp > 0 ? clamp01((float)lp / (float)startlp) : 0.f;
+	if(gauge < lastGauge[p] - 0.0001f) { trailHold[p] = 450.f; hitFlash[p] = 1.f; }
+	if(gauge > trail[p]) trail[p] = gauge;
+	lastGauge[p] = gauge;
+	if(trailHold[p] > 0.f) trailHold[p] -= dtMs;
+	else trail[p] = std::max(gauge, trail[p] - dtMs / 900.f);
+	hitFlash[p] = std::max(0.f, hitFlash[p] - dtMs / 380.f);
+	const float gy0 = by1 - bh * 0.24f, gy1 = by1 - bh * 0.10f;
+	const float gx0 = bx0 + (bx1 - bx0) * 0.03f, gx1 = bx1 - (bx1 - bx0) * 0.06f, gw = gx1 - gx0;
+	FillRect((s32)gx0, (s32)gy0, (s32)gx1, (s32)gy1, { 200, 4, 6, 8 });
+	auto seg = [&](float a, float b, video::SColor c0, video::SColor c1) {
+		// mirrored plates drain toward the ring side as well (right to left for you, left to right for them)
+		const float l = mirrored ? gx1 - gw * b : gx0 + gw * a;
+		const float r = mirrored ? gx1 - gw * a : gx0 + gw * b;
+		if(r - l < 1.f) return;
+		drv->draw2DRectangle(core::rect<s32>((s32)l, (s32)gy0, (s32)r, (s32)gy1), c0, c1, c0, c1);
+	};
+	if(trail[p] > gauge) seg(gauge, trail[p], { 230, 255, 240, 220 }, { 230, 255, 190, 150 });
+	const video::SColor g0 = p == 0 ? video::SColor(255, 150, 104, 30) : video::SColor(255, 110, 12, 22);
+	const video::SColor g1 = p == 0 ? video::SColor(255, 255, 220, 120) : video::SColor(255, 240, 70, 70);
+	seg(0.f, gauge, mirrored ? g1 : g0, mirrored ? g0 : g1);
+	// LP numerals, right-aligned for you, left-aligned for the opponent
+	auto* f = FitFont(bh * 0.62f);
+	const std::wstring lps = std::to_wstring(std::max(0, lp));
+	const auto d = TextSize(f, lps);
+	const float ny = by0 + bh * 0.06f;
+	const float nx = mirrored ? bx0 + (bx1 - bx0) * 0.20f : bx1 - (bx1 - bx0) * 0.08f - d.Width;
+	video::SColor nc = gauge < 0.25f ? video::SColor(255, 255, 140, 120) : video::SColor(255, 250, 244, 228);
+	nc = lerpc(nc, video::SColor(255, 255, 70, 60), hitFlash[p]);
+	Text(f, lps, nx, ny, nc, 0.85f, 2);
+	// "LP" tag and the name
+	const std::wstring tag = L"LP";
+	const auto td = TextSize(F.name ? F.name : F.statline, tag);
+	auto* nf = F.name ? F.name : F.statline;
+	const float tagX = mirrored ? bx0 + (bx1 - bx0) * 0.06f : nx - td.Width - h * 0.10f;
+	Text(nf, tag, tagX, ny + d.Height - td.Height - 2.f, { 255, 232, 196, 106 }, 0.8f, 1);
+	if(!name.empty()) {
+		const auto nd = TextSize(nf, name);
+		const float nmx = mirrored ? bx1 - (bx1 - bx0) * 0.04f - nd.Width : bx0 + (bx1 - bx0) * 0.05f;
+		Text(nf, name, nmx, y0 + h + 2.f, active ? video::SColor(255, 250, 240, 215) : video::SColor(255, 170, 160, 140), 0.85f, 1);
+	}
+}
+} // namespace
+
+bool DrawHud(const HudInfo& info) {
+	if(!Enabled()) return false;
+	LoadHud();
+	if(!hud.plate || !hud.you || !hud.opp) return false;
+	const uint32_t now = (uint32_t)clockMs;
+	const float dtMs = lastClock ? (float)(now - lastClock) : 16.f;
+	lastClock = now;
+	const float W = SW(), H = SH(), sx = W / 1024.f, sy = H / 640.f;
+	const float h = 62.f * sy;
+	const auto ps = hud.plate->getOriginalSize();
+	const float w = h * (float)ps.Width / (float)ps.Height;
+	const float leftX = 322.f * sx, rightX = 1018.f * sx - w, y = 4.f * sy;
+	Plate(leftX, y, w, h, false, info.lp[0], info.startlp, info.name[0], info.myTurn, 0, dtMs);
+	Plate(rightX, y, w, h, true, info.lp[1], info.startlp, info.name[1], !info.myTurn, 1, dtMs);
+	// turn medallion between the plates
+	if(hud.turn) {
+		const float mx = (leftX + w + rightX) / 2.f, my = y + h * 0.5f, ms = h * 1.08f;
+		Quad(hud.turn, { mx, my }, ms, ms, 0.f, video::SColor(255, 255, 255, 255), false);
+		const std::wstring tn = std::to_wstring(info.turn);
+		auto* f = FitFont(ms * 0.36f);
+		const auto d = TextSize(f, tn);
+		Text(f, tn, mx - d.Width / 2.f, my - d.Height / 2.f - 1.f, { 255, 250, 236, 200 }, 0.9f, 2);
+	}
+	return true;
+}
+
+// --- test aids ------------------------------------------------------------------------------------
+const char* AutoPuzzle() {
+	static const char* p = std::getenv("MDFX_AUTOPUZZLE");
+	return (p && *p) ? p : nullptr;
+}
+void DevCapture(bool inDuel) {
+	static const char* dir = std::getenv("MDFX_CAPTURE");
+	if(!dir || !*dir || !inDuel || !drv) return;
+	static const char* everyEnv = std::getenv("MDFX_CAPTURE_MS");
+	static const float every = everyEnv ? (float)std::atoi(everyEnv) : 100.f;
+	static float last = -1e9f;
+	static int n = 0;
+	if(clockMs - last < every && clockMs >= last) return;
+	last = clockMs;
+	auto* img = drv->createScreenShot();
+	if(!img) return;
+	const auto file = epro::format(EPRO_TEXT("{}/{:05d}.png"), Utils::ToPathString(std::string(dir)), n++);
+	drv->writeImageToFile(img, { file.data(), static_cast<u32>(file.size()) });
+	img->drop();
 }
 
 }

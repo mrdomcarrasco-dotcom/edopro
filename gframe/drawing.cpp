@@ -556,6 +556,16 @@ void Game::DrawMisc() {
 	//lp bar
 	const auto& self = dInfo.isTeam1 ? dInfo.selfnames : dInfo.opponames;
 	const auto& oppo = dInfo.isTeam1 ? dInfo.opponames : dInfo.selfnames;
+	mdfx::HudInfo hudInfo;
+	hudInfo.lp[0] = dInfo.lp[0];
+	hudInfo.lp[1] = dInfo.lp[1];
+	hudInfo.startlp = dInfo.startlp;
+	if(!self.empty()) hudInfo.name[0] = self[dInfo.current_player[0] < self.size() ? dInfo.current_player[0] : 0];
+	if(!oppo.empty()) hudInfo.name[1] = oppo[dInfo.current_player[1] < oppo.size() ? dInfo.current_player[1] : 0];
+	hudInfo.myTurn = (dInfo.turn % 2 && dInfo.isFirst) || (!(dInfo.turn % 2) && !dInfo.isFirst);
+	hudInfo.turn = dInfo.turn;
+	const bool customHud = mdfx::DrawHud(hudInfo);
+	if(!customHud) {
 	const auto lpframe_pos = ((dInfo.turn % 2 && dInfo.isFirst) || (!(dInfo.turn % 2) && !dInfo.isFirst)) ?
 						Resize(327, 8, 630, 51 + static_cast<irr::s32>(23 * (self.size() - 1))) :
 						Resize(689, 8, 991, 51 + static_cast<irr::s32>(23 * (oppo.size() - 1)));
@@ -564,10 +574,11 @@ void Game::DrawMisc() {
 	driver->draw2DImage(imageManager.tLPFrame, Resize(330, 10, 629, 30), irr::core::recti(0, 0, 200, 20), 0, 0, true);
 	driver->draw2DImage(imageManager.tLPFrame, Resize(691, 10, 990, 30), irr::core::recti(0, 0, 200, 20), 0, 0, true);
 
+	}
 #define SKCOLOR(what) skin::LPBAR_##what##_VAL
 #define RECTCOLOR(what) SKCOLOR(what##_TOP_LEFT), SKCOLOR(what##_TOP_RIGHT), SKCOLOR(what##_BOTTOM_LEFT), SKCOLOR(what##_BOTTOM_RIGHT)
 #define	DRAWRECT(rect_pos,what,clip) do { driver->draw2DRectangleClip(rect_pos, RECTCOLOR(what),nullptr,clip); } while(0)
-	if(dInfo.lp[0]) {
+	if(!customHud && dInfo.lp[0]) {
 		const auto lpbar_pos = Resize(335, 12, 625, 28);
 		if(dInfo.lp[0] < dInfo.startlp) {
 			auto cliprect = Resize(335, 12, 335 + 290 * (dInfo.lp[0] / static_cast<double>(dInfo.startlp)), 28);
@@ -576,7 +587,7 @@ void Game::DrawMisc() {
 			DRAWRECT(lpbar_pos, 1, nullptr);
 		}
 	}
-	if(dInfo.lp[1] > 0) {
+	if(!customHud && dInfo.lp[1] > 0) {
 		const auto lpbar_pos = Resize(696, 12, 986, 28);
 		if(dInfo.lp[1] < dInfo.startlp) {
 			auto cliprect = Resize(986 - 290 * (dInfo.lp[1] / static_cast<double>(dInfo.startlp)), 12, 986, 28);
@@ -613,6 +624,7 @@ void Game::DrawMisc() {
 		driver->draw2DRectangleOutline(rectpos, skin::TIMEBAR_2_OUTLINE_VAL);
 	}
 
+	if(!customHud) {
 	DrawShadowText(numFont, dInfo.strLP[0], Resize(330, 11, 629, 29), Resize(0, 1, 2, 0), skin::DUELFIELD_LP_1_VAL, 0xff000000, true, true);
 	DrawShadowText(numFont, dInfo.strLP[1], Resize(691, 11, 990, 29), Resize(0, 1, 2, 0), skin::DUELFIELD_LP_2_VAL, 0xff000000, true, true);
 
@@ -643,6 +655,7 @@ void Game::DrawMisc() {
 	/*driver->draw2DRectangle(Resize(632, 10, 688, 30), 0x00000000, 0x00000000, 0xffffffff, 0xffffffff);
 	driver->draw2DRectangle(Resize(632, 30, 688, 50), 0xffffffff, 0xffffffff, 0x00000000, 0x00000000);*/
 	DrawShadowText(lpcFont, gDataManager->GetNumString(dInfo.turn), Resize(635, 5, 685, 40), Resize(0, 0, 2, 0), skin::DUELFIELD_TURN_COUNT_VAL, 0x80000000, true);
+	}
 #undef DRAWRECT
 #undef LPCOLOR
 #undef SKCOLOR

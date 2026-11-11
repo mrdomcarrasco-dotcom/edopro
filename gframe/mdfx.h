@@ -25,6 +25,8 @@ struct Fonts {
 	irr::gui::CGUITTFont* big = nullptr;   // CHAIN / RESOLVE / banners (~56 px)
 	irr::gui::CGUITTFont* statline = nullptr; // ATK / DEF line (~18 px)
 	irr::gui::CGUITTFont* num = nullptr;   // chain numerals (EDOPRO's lpcFont)
+	irr::gui::CGUITTFont* lp = nullptr;    // HUD life points (number font, ~34 px)
+	irr::gui::CGUITTFont* name = nullptr;  // HUD duelist names (~15 px)
 };
 void Init(irr::video::IVideoDriver* driver, const Fonts& fonts);
 bool Enabled();
@@ -51,6 +53,22 @@ void Damage(int amount, bool self, const irr::core::vector3df& at);
 int Destroy(const irr::core::vector3df& pos);
 int PhaseBanner(const std::wstring& text, bool myTurn, bool turnChange);
 void Clear();
+
+// --- duel HUD (replaces the stock LP bars when the Progression art is installed) ---
+struct HudInfo {
+	int lp[2]{};
+	int startlp = 8000;
+	std::wstring name[2];
+	bool myTurn = true;
+	int turn = 0;
+};
+bool DrawHud(const HudInfo& info); // false -> caller draws the stock LP bars
+
+// --- test aids (environment variables, off unless set) ---
+// MDFX_AUTOPUZZLE=<puzzle path>: start that puzzle from the main menu. MDFX_CAPTURE=<dir>: write the
+// rendered duel frames there as PNGs every MDFX_CAPTURE_MS (default 100) ms.
+const char* AutoPuzzle();
+void DevCapture(bool inDuel);
 
 // --- main thread ---
 void Update(uint32_t delta_ms);

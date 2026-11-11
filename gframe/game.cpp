@@ -185,6 +185,11 @@ void Game::Initialize() {
 		fonts.big = make(54);
 		fonts.statline = make(17);
 		fonts.num = lpcFont;
+		{
+			GameConfig::TextFont lpfont{ gGameConfig->numfont, (uint8_t)Scale(34) };
+			fonts.lp = irr::gui::CGUITTFont::createTTFont(env, lpfont, fallbackFonts);
+		}
+		fonts.name = make(15);
 		mdfx::Init(driver, fonts);
 	}
 	if(!ApplySkin(gGameConfig->skin, false, true)) {
@@ -2033,6 +2038,18 @@ bool Game::MainLoop() {
 	}
 	while(!restart && device->run()) {
 		DispatchQueue();
+		if(const char* autoPuzzle = mdfx::AutoPuzzle()) {
+			// test aid: start the given puzzle once, two seconds after the menu is up
+			static int autoWait = 0;
+			if(autoWait >= 0 && !dInfo.isInDuel && !dInfo.isSingleMode && ++autoWait > 120) {
+				autoWait = -1;
+				HideElement(wMainMenu);
+				SingleMode::singleSignal.SetNoWait(false);
+				SingleMode::DuelOptions opts;
+				opts.scriptName = autoPuzzle;
+				SingleMode::StartPlay(std::move(opts));
+			}
+		}
 		if(should_reload_skin) {
 			should_reload_skin = false;
 			if(Utils::ToPathString(gSettings.cbCurrentSkin->getItem(gSettings.cbCurrentSkin->getSelected())) != gGameConfig->skin) {
@@ -2215,6 +2232,7 @@ bool Game::MainLoop() {
 				stHintMsg->setText(gDataManager->GetSysString(1392).data());
 			}
 		}
+		mdfx::DevCapture(dInfo.isInDuel);
 		driver->endScene();
 		gMutex.unlock();
 		if(closeDuelWindow)
