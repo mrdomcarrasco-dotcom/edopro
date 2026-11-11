@@ -352,6 +352,8 @@ core::vector2df shakeNow;
 float dmgFrame = 0.f; // crimson frame, ms left
 float dimT = -1.f;    // activation dim
 float clockMs = 0.f;  // free-running, for HUD pulses
+struct PendingNumber { std::wstring text; int player = 0, frames = 0; bool valid = false; } pendingNum; // LpNumber -> Draw
+bool DrawLpNumber(const std::wstring& text, int player, int framesLeft);
 
 struct Overlay {
 	enum Kind : uint8_t { NONE, CUTIN, EXODIA, SEAL, CHAIN, RESOLVE, BANNER, RESULT } kind = NONE;
@@ -1241,6 +1243,10 @@ void Draw(scene::ISceneManager* smgr) {
 	default: break;
 	}
 	DrawSparks();
+	if(pendingNum.valid) {
+		DrawLpNumber(pendingNum.text, pendingNum.player, pendingNum.frames);
+		pendingNum.valid = false;
+	}
 	if(dmgFrame > 0.f) {
 		// thick crimson frame round the screen when you take damage
 		const float a = dmgFrame > 300.f ? 1.f : dmgFrame / 300.f;
@@ -1424,7 +1430,15 @@ void DevDemo(bool inDuel) {
 
 // big LP change number from title-art digits: d0..d9 + dminus (damage, red), n0..n9 + nplus (gain, gold).
 // progress comes from EDOPRO's own LP roll (framesLeft counts LpRollFrames() -> 0). false = draw the stock text.
+// called from DrawMisc (under the cards' stat pills): only checks the art and queues the number; mdfx::Draw
+// renders it last so it sits above everything
 bool LpNumber(const std::wstring& text, int player, int framesLeft) {
+	if(!Enabled() || text.empty() || !Ui("d0") || !Ui("n0")) return false;
+	pendingNum = { text, player, framesLeft, true };
+	return true;
+}
+namespace {
+bool DrawLpNumber(const std::wstring& text, int player, int framesLeft) {
 	if(!Enabled() || text.empty()) return false;
 	const bool gain = text[0] == L'+';
 	std::vector<video::ITexture*> glyphs;
@@ -1467,6 +1481,7 @@ bool LpNumber(const std::wstring& text, int player, int framesLeft) {
 	if(k < 0.12f) Quad(tGlow, { cx, cy }, total * 2.4f, h * 2.f, 0.f, addc((1.f - k / 0.12f) * 0.8f, { 255, 255, 255, 255 }), true);
 	return true;
 }
+} // namespace
 
 // --- test aids ------------------------------------------------------------------------------------
 const char* AutoPuzzle() {
