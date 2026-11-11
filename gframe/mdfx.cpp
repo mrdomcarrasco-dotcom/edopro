@@ -331,6 +331,9 @@ struct Overlay {
 	Cutin cut = Cutin::NONE;
 	bool opp = false, first = false, mine = false, turn = false;
 	int resolving = 0, beat = 0;
+	int video = 0;          // frames of an authored scene (pics/mdfx/scene/<code>/0001.jpg...), 0 = procedural
+	uint32_t videoCode = 0;
+	float plateStart = 0.f; // when the name plate slides in
 	std::vector<uint32_t> codes;
 	std::wstring name, stats, text;
 	int stars = 0;
@@ -429,6 +432,32 @@ Cutin CutinFor(uint32_t code) {
 	}
 }
 
+namespace {
+// authored summon scenes: a 24 fps JPEG sequence per card, rendered from our own keyframe + image-to-video
+constexpr float SCENE_FPS = 24.f;
+std::map<uint32_t, int> sceneCount;
+epro::path_string ScenePath(uint32_t code, int frame) {
+	return epro::format(EPRO_TEXT("./pics/mdfx/scene/{}/{:04d}.jpg"), code, frame);
+}
+int SceneFrames(uint32_t code) {
+	auto it = sceneCount.find(code);
+	if(it != sceneCount.end()) return it->second;
+	int n = 0;
+	while(n < 600 && Utils::FileExists(ScenePath(code, n + 1))) ++n;
+	sceneCount[code] = n;
+	return n;
+}
+video::ITexture* sceneTex = nullptr;
+int sceneTexFrame = -1;
+uint32_t sceneTexCode = 0;
+void DropSceneTex() {
+	if(sceneTex) drv->removeTexture(sceneTex);
+	sceneTex = nullptr;
+	sceneTexFrame = -1;
+	sceneTexCode = 0;
+}
+} // namespace
+
 int StartCutin(Cutin kind, uint32_t code, bool opponent) {
 	if(!Enabled() || kind == Cutin::NONE) return 0;
 	ov = Overlay{};
@@ -447,6 +476,17 @@ int StartCutin(Cutin kind, uint32_t code, bool opponent) {
 	}
 	ov.kind = Overlay::CUTIN;
 	ov.dur = 1450.f;
+	{
+		uint32_t sc = code;
+		int frames = SceneFrames(sc);
+		if(!frames) { sc = BaseCode(code); if(sc != code) frames = SceneFrames(sc); }
+		if(frames > 0) {
+			ov.video = frames;
+			ov.videoCode = sc;
+			ov.dur = frames * 1000.f / SCENE_FPS + 350.f;
+			ov.plateStart = std::max(0.f, ov.dur - 1900.f);
+		}
+	}
 	if(const auto* d = gDataManager->GetCardData(code)) {
 		ov.stars = (int)(d->level & 0xff);
 		ov.stats = epro::format(L"ATK {}    DEF {}", StatText(d->attack), StatText(d->defense));
@@ -741,6 +781,32 @@ void DrawCutin() {
 	const auto c = Center();
 	const float out = smooth(D - 150.f, D, t);  // 100-150 ms cross-dissolve
 	const float live = 1.f - out;
+	if(ov.video > 0) {
+		// authored scene: stream the frame for this moment, full screen (cover), fading in from the board
+		const int frame = std::min(ov.video, 1 + (int)(t * SCENE_FPS / 1000.f));
+		if(sceneTexCode != ov.videoCode || sceneTexFrame != frame) {
+			auto* next = LoadFile(ScenePath(ov.videoCode, frame));
+			if(next) {
+				if(sceneTex && sceneTex != next) drv->removeTexture(sceneTex);
+				sceneTex = next;
+				sceneTexFrame = frame;
+				sceneTexCode = ov.videoCode;
+			}
+		}
+		const float in = smooth(0.f, 180.f, t), outv = smooth(D - 280.f, D, t);
+		const float a = in * (1.f - outv);
+		FillRect(0, 0, (s32)W, (s32)H, col(0.85f * a, { 255, 0, 0, 0 }));
+		if(sceneTex) {
+			const auto ts = sceneTex->getOriginalSize();
+			const float k = std::max(W / ts.Width, H / ts.Height) * (1.f + 0.02f * (1.f - in));
+			Quad(sceneTex, c, ts.Width * k, ts.Height * k, 0.f, col(a, { 255, 255, 255, 255 }), false);
+		}
+		// letterbox vignette top and bottom
+		const s32 lb = (s32)(0.075f * H);
+		const auto edge = col(0.9f * a, { 255, 0, 0, 0 }), clear = col(0.f, { 255, 0, 0, 0 });
+		drv->draw2DRectangle(core::rect<s32>(0, 0, (s32)W, lb), edge, edge, clear, clear);
+		drv->draw2DRectangle(core::rect<s32>(0, (s32)H - lb, (s32)W, (s32)H), clear, clear, edge, edge);
+	} else {
 	// the board stays visible, darkened ~70% and tinted
 	FillRect(0, 0, (s32)W, (s32)H, col(0.72f * live, { 255, 6, 8, 16 }));
 	Quad(tGlow, c, W * 1.3f, H * 1.6f, 0.f, addc(0.35f * live, ov.tint), true);
@@ -821,8 +887,11 @@ void DrawCutin() {
 			}
 		}
 	}
-	// two-tier name plate across the lower ~15%, sliding in from the left
-	const float slide = outQuint(t / 220.f);
+	} // procedural scene
+	// two-tier name plate across the lower ~15%, sliding in from the left (authored scenes: near the end)
+	if(t < ov.plateStart) return;
+	const float tp = t - ov.plateStart;
+	const float slide = outQuint(tp / 220.f);
 	const float plateA = live;
 	const float textA = 1.f - smooth(D - 200.f, D - 150.f, t);
 	const s32 y0 = (s32)(0.79f * H), y1 = (s32)(0.875f * H), y2 = (s32)(0.94f * H);
@@ -845,9 +914,9 @@ void DrawCutin() {
 	}
 	// level stars pop in left to right, ~30 ms apart, from ~600 ms (white dot, then gold)
 	for(int i = 0; i < ov.stars && i < 13; ++i) {
-		const float st = 600.f + i * 30.f;
-		if(t < st) break;
-		const float k = clamp01((t - st) / 90.f);
+		const float st = (ov.video > 0 ? 250.f : 600.f) + i * 30.f;
+		if(tp < st) break;
+		const float k = clamp01((tp - st) / 90.f);
 		const float sz = (22.f + 10.f * (1.f - k)) * s;
 		const core::vector2df p(textX + 14.f * s + i * 27.f * s, y0 - 18.f * s);
 		Quad(tGlow, p, sz * 2.2f, sz * 2.2f, 0.f, addc(textA * (1.f - k) * 0.9f, { 255, 255, 255, 255 }), true);
@@ -1007,6 +1076,7 @@ void Draw(scene::ISceneManager* smgr) {
 	if(ov.kind == Overlay::CHAIN || ov.kind == Overlay::RESOLVE)
 		FillRect(0, 0, (s32)W, (s32)H, col(0.42f * window(ov.t, 0.f, ov.dur, 100.f, 200.f), { 255, 10, 22, 48 }));
 	DrawFx(coll);
+	if(sceneTex && !(ov.kind == Overlay::CUTIN && ov.video > 0)) DropSceneTex();
 	switch(ov.kind) {
 	case Overlay::CUTIN: DrawCutin(); break;
 	case Overlay::SEAL: DrawSeal(); break;
@@ -1117,28 +1187,29 @@ void Plate(float x0, float y0, float w, float h, bool mirrored, int lp, int star
 	const video::SColor g0 = p == 0 ? video::SColor(255, 150, 104, 30) : video::SColor(255, 110, 12, 22);
 	const video::SColor g1 = p == 0 ? video::SColor(255, 255, 220, 120) : video::SColor(255, 240, 70, 70);
 	seg(0.f, gauge, mirrored ? g1 : g0, mirrored ? g0 : g1);
-	// LP numerals, right-aligned for you, left-aligned for the opponent
-	auto* f = FitFont((gy0 - by0) * 0.95f);
+	// name on top, "LP" + number under it, both on the portrait side
+	auto* nf = F.name ? F.name : F.statline;
+	const float pad = (bx1 - bx0) * 0.05f;
+	float rowY = by0 + bh * 0.05f;
+	if(!name.empty()) {
+		const auto nd = TextSize(nf, name);
+		const float nmx = mirrored ? bx1 - pad - nd.Width : bx0 + pad;
+		Text(nf, name, nmx, rowY, active ? video::SColor(255, 250, 240, 215) : video::SColor(255, 175, 165, 145), 0.85f, 1);
+		rowY += nd.Height;
+	}
+	auto* f = FitFont((gy0 - rowY) * 1.02f);
 	const std::wstring lps = std::to_wstring(std::max(0, lp));
 	const auto d = TextSize(f, lps);
-	const float ny = by0 + (gy0 - by0 - d.Height) * 0.5f;
-	const float nx = mirrored ? bx0 + (bx1 - bx0) * 0.16f : bx1 - (bx1 - bx0) * 0.10f - d.Width;
+	const std::wstring tag = L"LP";
+	const auto td = TextSize(nf, tag);
+	const float ny = rowY + (gy0 - rowY - d.Height) * 0.5f;
 	video::SColor nc = gauge < 0.25f ? video::SColor(255, 255, 140, 120) : video::SColor(255, 250, 244, 228);
 	nc = lerpc(nc, video::SColor(255, 255, 70, 60), hitFlash[p]);
-	Text(f, lps, nx, ny, nc, 0.85f, 2);
-	// "LP" tag and the name
-	const std::wstring tag = L"LP";
-	const auto td = TextSize(F.name ? F.name : F.statline, tag);
-	auto* nf = F.name ? F.name : F.statline;
-	const float tagX = mirrored ? bx0 + (bx1 - bx0) * 0.06f : nx - td.Width - h * 0.08f;
-	Text(nf, tag, tagX, ny + d.Height - td.Height - 2.f, { 255, 232, 196, 106 }, 0.8f, 1);
-	if(!name.empty()) {
-		// name in the bar, on the portrait side, above the gauge
-		const auto nd = TextSize(nf, name);
-		const float nmx = mirrored ? bx1 - (bx1 - bx0) * 0.05f - nd.Width : bx0 + (bx1 - bx0) * 0.05f;
-		const float nmy = gy0 - nd.Height - bh * 0.06f;
-		Text(nf, name, nmx, nmy, active ? video::SColor(255, 250, 240, 215) : video::SColor(255, 175, 165, 145), 0.85f, 1);
-	}
+	const float gap = h * 0.06f;
+	const float tagX = mirrored ? bx1 - pad - d.Width - gap - td.Width : bx0 + pad;
+	const float numX = mirrored ? bx1 - pad - d.Width : bx0 + pad + td.Width + gap;
+	Text(nf, tag, tagX, ny + d.Height - td.Height - 1.f, { 255, 232, 196, 106 }, 0.8f, 1);
+	Text(f, lps, numX, ny, nc, 0.85f, 2);
 }
 } // namespace
 
@@ -1172,12 +1243,13 @@ void Pill(const core::recti& r) {
 	if(!Enabled()) return;
 	const s32 x0 = r.UpperLeftCorner.X, y0 = r.UpperLeftCorner.Y, x1 = r.LowerRightCorner.X, y1 = r.LowerRightCorner.Y;
 	if(x1 - x0 < 2 || y1 - y0 < 2) return;
-	drv->draw2DRectangle(core::rect<s32>(x0 + 1, y0, x1 - 1, y1), video::SColor(215, 10, 12, 17), video::SColor(215, 10, 12, 17),
-						 video::SColor(215, 4, 5, 8), video::SColor(215, 4, 5, 8));
-	drv->draw2DRectangle(video::SColor(215, 7, 8, 12), core::rect<s32>(x0, y0 + 1, x0 + 1, y1 - 1));
-	drv->draw2DRectangle(video::SColor(215, 7, 8, 12), core::rect<s32>(x1 - 1, y0 + 1, x1, y1 - 1));
-	drv->draw2DLine({ x0 + 2, y0 }, { x1 - 2, y0 }, video::SColor(170, 201, 163, 82));
-	drv->draw2DLine({ x0 + 2, y1 - 1 }, { x1 - 2, y1 - 1 }, video::SColor(120, 140, 110, 50));
+	const video::SColor top(230, 30, 34, 44), bot(230, 12, 14, 19);
+	drv->draw2DRectangle(core::rect<s32>(x0 + 1, y0 + 1, x1 - 1, y1 - 1), top, top, bot, bot);
+	const video::SColor gold(210, 201, 163, 82), goldDim(150, 140, 110, 50);
+	drv->draw2DLine({ x0 + 2, y0 }, { x1 - 2, y0 }, gold);
+	drv->draw2DLine({ x0 + 2, y1 - 1 }, { x1 - 2, y1 - 1 }, goldDim);
+	drv->draw2DLine({ x0, y0 + 2 }, { x0, y1 - 2 }, goldDim);
+	drv->draw2DLine({ x1 - 1, y0 + 2 }, { x1 - 1, y1 - 2 }, goldDim);
 }
 
 // --- test aids ------------------------------------------------------------------------------------
