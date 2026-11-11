@@ -111,6 +111,8 @@ public:
 	void GetChainDrawCoordinates(uint8_t controler, uint8_t location, uint32_t sequence, irr::core::vector3df* t);
 	void GetCardDrawCoordinates(ClientCard* pcard, irr::core::vector3df* t, irr::core::vector3df* r, bool setTrans = false);
 	void MoveCard(ClientCard* pcard, float frame);
+	// eased move to any position/rotation (mdfx draw presentation)
+	void MoveCardTo(ClientCard* pcard, irr::core::vector3df trans, irr::core::vector3df rot, float frame);
 	void FadeCard(ClientCard* pcard, float alpha, float frame);
 	bool ShowSelectSum();
 	bool CheckSelectSum();

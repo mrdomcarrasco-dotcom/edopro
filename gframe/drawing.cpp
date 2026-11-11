@@ -384,7 +384,21 @@ void Game::DrawCard(ClientCard* pcard) {
 	}
 	matManager.mCard.AmbientColor = 0xffffffff;
 	matManager.mCard.DiffuseColor = ((int)std::round(pcard->curAlpha) << 24) | 0xffffff;
-	driver->setTransform(irr::video::ETS_WORLD, pcard->mTransform);
+	if(pcard->popDur > 0.0f) {
+		pcard->popT += (float)delta_time;
+		if(pcard->popT >= pcard->popDur)
+			pcard->popDur = 0.0f;
+	}
+	{
+		const float pop = mdfx::PopScale(pcard->popFrom, pcard->popT, pcard->popDur);
+		irr::core::matrix4 world = pcard->mTransform;
+		if(pop != 1.0f) {
+			irr::core::matrix4 scale;
+			scale.setScale(pop);
+			world *= scale;
+		}
+		driver->setTransform(irr::video::ETS_WORLD, world);
+	}
 	auto m22 = pcard->mTransform(2, 2);
 	if(m22 > -0.99 || pcard->is_moving) {
 		matManager.mCard.setTexture(0, imageManager.GetTextureCard(pcard->code, imgType::ART));

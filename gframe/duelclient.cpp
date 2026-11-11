@@ -1623,7 +1623,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 				mainGame->dInfo.vic_string = gDataManager->GetVictoryString(type).data();
 		}
 		if(type == 0x10 && player < 2 && !mainGame->dInfo.isCatchingUp)
-			mainGame->WaitFrameSignal(mdfx::StartCutin(mdfx::Cutin::EXODIA_WIN, 33396948, irr::core::vector3df(), player != 0), lock);
+			mainGame->WaitFrameSignal(mdfx::ExodiaWin(), lock);
 		mainGame->showcard = 101;
 		mainGame->WaitFrameSignal(120, lock);
 		mainGame->dInfo.vic_string = L"";
@@ -2957,6 +2957,11 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			}
 		}
 		if(!mainGame->dInfo.isCatchingUp) {
+			const bool my_turn = (mainGame->dInfo.turn % 2 && mainGame->dInfo.isFirst) || (!(mainGame->dInfo.turn % 2) && !mainGame->dInfo.isFirst);
+			if(const int frames = mdfx::PhaseBanner(std::wstring(gDataManager->GetSysString(1700 + 10)), my_turn, true)) {
+				mainGame->WaitFrameSignal(frames, lock);
+				return true;
+			}
 			mainGame->showcardcode = 10;
 			mainGame->showcarddif = 30;
 			mainGame->showcardp = 0;
@@ -3044,6 +3049,11 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			break;
 		}
 		if(!mainGame->dInfo.isCatchingUp) {
+			const bool my_turn = (mainGame->dInfo.turn % 2 && mainGame->dInfo.isFirst) || (!(mainGame->dInfo.turn % 2) && !mainGame->dInfo.isFirst);
+			if(const int frames = mdfx::PhaseBanner(std::wstring(gDataManager->GetSysString(1700 + mainGame->showcardcode)), my_turn, false)) {
+				mainGame->WaitFrameSignal(frames, lock);
+				return true;
+			}
 			mainGame->showcard = 101;
 			mainGame->WaitFrameSignal(40, lock);
 			mainGame->showcard = 0;
@@ -3064,6 +3074,13 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 				Play(SoundManager::SFX::BANISHED);
 		}
 		auto lock = LockIf();
+		if((reason & REASON_DESTROY) && (previous.location & LOCATION_ONFIELD) && !(previous.location & LOCATION_OVERLAY)
+		   && previous.location != current.location && !mainGame->dInfo.isCatchingUp) {
+			if(ClientCard* dcard = mainGame->dField.GetCard(previous.controler, previous.location, previous.sequence)) {
+				if(const int frames = mdfx::Destroy(dcard->curPos))
+					mainGame->WaitFrameSignal(frames, lock);
+			}
+		}
 		if (previous.location == 0) {
 			ClientCard* pcard = new ClientCard{};
 			pcard->position = current.position;
@@ -3299,11 +3316,22 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			const auto self = mainGame->LocalPlayer(info.controler);
 			ClientCard* scard = mainGame->dField.GetCard(self, info.location, info.sequence);
 			if(cutin != mdfx::Cutin::NONE) {
-				mainGame->WaitFrameSignal(mdfx::StartCutin(cutin, code, scard ? scard->curPos : irr::core::vector3df(), self == 1), lock);
+				// Master Duel style: a 1.4 s scene, then the card shrinks from ~1.55x into its zone
+				mainGame->WaitFrameSignal(mdfx::StartCutin(cutin, code, self == 1), lock);
+				if(scard)
+					mdfx::Pop(scard->popFrom, scard->popT, scard->popDur, 1.55f, 420.0f);
+				mainGame->WaitFrameSignal(20, lock);
 				return true;
 			}
-			if(scard)
-				mdfx::SummonImpact(scard->curPos, (int)std::max(scard->level, scard->rank), false);
+			if(mdfx::Enabled()) {
+				// lands oversized and settles into the zone (special summons flash white, then cyan)
+				if(scard) {
+					mdfx::Pop(scard->popFrom, scard->popT, scard->popDur, 1.4f, 380.0f);
+					mdfx::SummonFlash(scard->curPos, false);
+				}
+				mainGame->WaitFrameSignal(26, lock);
+				return true;
+			}
 			mainGame->showcardcode = code;
 			mainGame->showcarddif = 0;
 			mainGame->showcardp = 0;
@@ -3330,11 +3358,22 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			const auto self = mainGame->LocalPlayer(info.controler);
 			ClientCard* scard = mainGame->dField.GetCard(self, info.location, info.sequence);
 			if(cutin != mdfx::Cutin::NONE) {
-				mainGame->WaitFrameSignal(mdfx::StartCutin(cutin, code, scard ? scard->curPos : irr::core::vector3df(), self == 1), lock);
+				// Master Duel style: a 1.4 s scene, then the card shrinks from ~1.55x into its zone
+				mainGame->WaitFrameSignal(mdfx::StartCutin(cutin, code, self == 1), lock);
+				if(scard)
+					mdfx::Pop(scard->popFrom, scard->popT, scard->popDur, 1.55f, 420.0f);
+				mainGame->WaitFrameSignal(20, lock);
 				return true;
 			}
-			if(scard)
-				mdfx::SummonImpact(scard->curPos, (int)std::max(scard->level, scard->rank), true);
+			if(mdfx::Enabled()) {
+				// lands oversized and settles into the zone (special summons flash white, then cyan)
+				if(scard) {
+					mdfx::Pop(scard->popFrom, scard->popT, scard->popDur, 1.4f, 380.0f);
+					mdfx::SummonFlash(scard->curPos, true);
+				}
+				mainGame->WaitFrameSignal(26, lock);
+				return true;
+			}
 			mainGame->showcardcode = code;
 			mainGame->showcarddif = 1;
 			mainGame->showcard = 5;
@@ -3396,11 +3435,12 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		}
 		if(!mainGame->dInfo.isCatchingUp) {
 			if(mdfx::CutinFor(code) == mdfx::Cutin::ORICHALCOS)
-				mainGame->WaitFrameSignal(mdfx::StartCutin(mdfx::Cutin::ORICHALCOS, code, pcard->curPos, cc == 1), lock);
-			mdfx::ChainStamp(pcard->curPos, (int)mainGame->dField.chains.size() + 1, cc == 1);
+				mainGame->WaitFrameSignal(mdfx::StartCutin(mdfx::Cutin::ORICHALCOS, code, cc == 1), lock);
+			const bool monster_effect = (pcard->type & TYPE_MONSTER) && !(pcard->location & LOCATION_SZONE);
+			mdfx::Activate(pcard->curPos, monster_effect);
 			mainGame->showcardcode = code;
 			mainGame->showcarddif = 0;
-			mainGame->showcard = 1;
+			mainGame->showcard = mdfx::Enabled() ? 0 : 1;
 			pcard->is_highlighting = true;
 			if(pcard->location & 0x30) {
 				constexpr float milliseconds = 5.0f * 1000.0f / 60.0f;
@@ -3448,8 +3488,13 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		auto lock = LockIf();
 		event_string = epro::sprintf(gDataManager->GetSysString(1609), gDataManager->GetName(mainGame->dField.current_chain.code));
 		mainGame->dField.chains.push_back(mainGame->dField.current_chain);
-		if (ct > 1 && !mainGame->dInfo.isCatchingUp)
-			mainGame->WaitFrameSignal(20, lock);
+		if (ct > 1 && !mainGame->dInfo.isCatchingUp) {
+			std::vector<uint32_t> codes;
+			for(const auto& chain : mainGame->dField.chains)
+				codes.push_back(chain.code);
+			const int frames = mdfx::ChainDisplay(codes);
+			mainGame->WaitFrameSignal(frames ? frames : 20, lock);
+		}
 		mainGame->dField.last_chain = true;
 		return true;
 	}
@@ -3459,7 +3504,21 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		if(!mainGame->dInfo.isCatchingUp) {
 			if(mainGame->dField.last_chain)
 				mainGame->WaitFrameSignal(11, lock);
-			mdfx::ResolveFlash(mainGame->dField.chains[ct - 1].chain_pos, ct);
+			if(mdfx::Enabled()) {
+				const auto& chains = mainGame->dField.chains;
+				if(chains.size() >= 2) {
+					std::vector<uint32_t> codes;
+					for(const auto& chain : chains)
+						codes.push_back(chain.code);
+					mainGame->WaitFrameSignal(mdfx::ResolveDisplay(codes, ct, ct == (int)chains.size()), lock);
+				} else {
+					mdfx::ResolveGlow(chains[ct - 1].chain_card ? chains[ct - 1].chain_card->curPos : chains[ct - 1].chain_pos);
+					mainGame->WaitFrameSignal(20, lock);
+				}
+				mainGame->dField.chains[ct - 1].solved = true;
+				mainGame->dField.last_chain = false;
+				return true;
+			}
 			for(int i = 0; i < 5; ++i) {
 				mainGame->dField.chains[ct - 1].solved = false;
 				mainGame->WaitFrameSignal(3, lock);
@@ -3580,6 +3639,18 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			deck.pop_back();
 			mainGame->dField.AddCard(pcard, player, LOCATION_HAND, 0);
 			if(!mainGame->dInfo.isCatchingUp) {
+				if(mdfx::Enabled() && count == 1 && player == 0 && pcard->code) {
+					irr::core::vector3df hand_pos, hand_rot;
+					mainGame->dField.GetCardDrawCoordinates(pcard, &hand_pos, &hand_rot, false);
+					// toward the camera (bigger) and a little up the screen, centred
+					const irr::core::vector3df present{ FIELD_X, hand_pos.Y + 1.55f, hand_pos.Z + 2.6f };
+					mainGame->dField.MoveCardTo(pcard, present, hand_rot, 9);
+					mainGame->WaitFrameSignal(30, lock);
+					for(auto& hand_pcard : mainGame->dField.hand[player])
+						mainGame->dField.MoveCard(hand_pcard, 10);
+					mainGame->WaitFrameSignal(12, lock);
+					continue;
+				}
 				for(auto& hand_pcard : mainGame->dField.hand[player])
 					mainGame->dField.MoveCard(hand_pcard, 10);
 				mainGame->WaitFrameSignal(5, lock);
@@ -3597,16 +3668,16 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			final = 0;
 		auto lock = LockIf();
 		if(!mainGame->dInfo.isCatchingUp) {
-			mdfx::Damage((int)val, player == 0);
-			mainGame->lpd = (mainGame->dInfo.lp[player] - final) / 10;
+			mdfx::Damage((int)val, player == 0, irr::core::vector3df(4.2f, -1.4f, 0.0f));
+			mainGame->lpd = (mainGame->dInfo.lp[player] - final) / mdfx::LpRollFrames();
 			event_string = epro::sprintf(gDataManager->GetSysString(1613 + player), val);
 			mainGame->lpccolor = 0xff0000;
 			mainGame->lpcalpha = 0xff;
 			mainGame->lpplayer = player;
 			mainGame->lpcstring = epro::format(L"-{}", val);
 			mainGame->WaitFrameSignal(30, lock);
-			mainGame->lpframe = 10;
-			mainGame->WaitFrameSignal(11, lock);
+			mainGame->lpframe = mdfx::LpRollFrames();
+			mainGame->WaitFrameSignal(mdfx::LpRollFrames() + 1, lock);
 			mainGame->lpcstring = L"";
 		}
 		mainGame->dInfo.lp[player] = final;
@@ -3620,15 +3691,15 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		const int final = mainGame->dInfo.lp[player] + val;
 		auto lock = LockIf();
 		if(!mainGame->dInfo.isCatchingUp) {
-			mainGame->lpd = (mainGame->dInfo.lp[player] - final) / 10;
+			mainGame->lpd = (mainGame->dInfo.lp[player] - final) / mdfx::LpRollFrames();
 			event_string = epro::sprintf(gDataManager->GetSysString(1615 + player), val);
 			mainGame->lpccolor = 0x00ff00;
 			mainGame->lpcalpha = 0xff;
 			mainGame->lpplayer = player;
 			mainGame->lpcstring = epro::format(L"+{}", val);
 			mainGame->WaitFrameSignal(30, lock);
-			mainGame->lpframe = 10;
-			mainGame->WaitFrameSignal(11, lock);
+			mainGame->lpframe = mdfx::LpRollFrames();
+			mainGame->WaitFrameSignal(mdfx::LpRollFrames() + 1, lock);
 			mainGame->lpcstring = L"";
 		}
 		mainGame->dInfo.lp[player] = final;
@@ -3663,10 +3734,10 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		const auto val = BufferIO::Read<uint32_t>(pbuf);
 		auto lock = LockIf();
 		if(!mainGame->dInfo.isCatchingUp) {
-			mainGame->lpd = (mainGame->dInfo.lp[player] - val) / 10;
+			mainGame->lpd = (mainGame->dInfo.lp[player] - val) / mdfx::LpRollFrames();
 			mainGame->lpplayer = player;
-			mainGame->lpframe = 10;
-			mainGame->WaitFrameSignal(11, lock);
+			mainGame->lpframe = mdfx::LpRollFrames();
+			mainGame->WaitFrameSignal(mdfx::LpRollFrames() + 1, lock);
 		}
 		mainGame->dInfo.lp[player] = val;
 		mainGame->dInfo.strLP[player] = epro::to_wstring(mainGame->dInfo.lp[player]);
@@ -3727,14 +3798,14 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			final = 0;
 		auto lock = LockIf();
 		if(!mainGame->dInfo.isCatchingUp) {
-			mainGame->lpd = (mainGame->dInfo.lp[player] - final) / 10;
+			mainGame->lpd = (mainGame->dInfo.lp[player] - final) / mdfx::LpRollFrames();
 			mainGame->lpccolor = 0x0000ff;
 			mainGame->lpcalpha = 0xff;
 			mainGame->lpplayer = player;
 			mainGame->lpcstring = epro::format(L"-{}", cost);
 			mainGame->WaitFrameSignal(30, lock);
-			mainGame->lpframe = 10;
-			mainGame->WaitFrameSignal(11, lock);
+			mainGame->lpframe = mdfx::LpRollFrames();
+			mainGame->WaitFrameSignal(mdfx::LpRollFrames() + 1, lock);
 			mainGame->lpcstring = L"";
 		}
 		mainGame->dInfo.lp[player] = final;

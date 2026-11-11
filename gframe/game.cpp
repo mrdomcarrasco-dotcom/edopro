@@ -175,10 +175,17 @@ void Game::Initialize() {
 	if(!numFont || !adFont || !lpcFont)
 		throw std::runtime_error("Failed to load numbers font");
 	{
-		auto bannerfont = gGameConfig->textfont;
-		bannerfont.size = (uint8_t)Scale(30);
-		mdfxFont = irr::gui::CGUITTFont::createTTFont(env, bannerfont, fallbackFonts);
-		mdfx::Init(driver, mdfxFont, lpcFont);
+		auto make = [&](int size) {
+			auto font = gGameConfig->textfont;
+			font.size = (uint8_t)Scale(size);
+			return irr::gui::CGUITTFont::createTTFont(env, font, fallbackFonts);
+		};
+		mdfx::Fonts fonts;
+		fonts.plate = mdfxFont = make(30);
+		fonts.big = make(54);
+		fonts.small = make(17);
+		fonts.num = lpcFont;
+		mdfx::Init(driver, fonts);
 	}
 	if(!ApplySkin(gGameConfig->skin, false, true)) {
 		gGameConfig->skin = NoSkinLabel();

@@ -29,6 +29,10 @@ public:
 	irr::core::vector3df aniDeltaRot;
 	float aniTotal = 0.0f;
 	float aniLift = 0.0f;
+	// lands oversized and settles into its zone (mdfx)
+	float popFrom = 1.0f;
+	float popT = 0.0f;
+	float popDur = 0.0f;
 	bool is_moving;
 	bool refresh_on_stop;
 	bool is_fading;

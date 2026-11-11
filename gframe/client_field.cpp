@@ -950,10 +950,13 @@ void ClientField::GetCardDrawCoordinates(ClientCard* pcard, irr::core::vector3df
 	}
 }
 void ClientField::MoveCard(ClientCard* pcard, float frame) {
-	float milliseconds = frame * 1000.0f / 60.0f * mdfx::MoveTimeScale();
 	irr::core::vector3df trans = pcard->curPos;
 	irr::core::vector3df rot = pcard->curRot;
 	GetCardDrawCoordinates(pcard, &trans, &rot);
+	MoveCardTo(pcard, trans, rot, frame);
+}
+void ClientField::MoveCardTo(ClientCard* pcard, irr::core::vector3df trans, irr::core::vector3df rot, float frame) {
+	float milliseconds = frame * 1000.0f / 60.0f * mdfx::MoveTimeScale();
 	pcard->dPos = (trans - pcard->curPos) / milliseconds;
 	float diff = rot.X - pcard->curRot.X;
 	while (diff < 0) diff += irr::core::PI * 2;
