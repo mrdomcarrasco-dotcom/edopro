@@ -227,6 +227,17 @@ bool SoundManager::PlayChant(CHANT chant, uint32_t code) {
 		return false;
 	return mixer->PlaySound(chant_it->second);
 }
+bool SoundManager::PlayFx(epro::stringview name) {
+	if(!IsUsable())
+		return false;
+	if(!soundsEnabled) return false;
+	for(const auto& ext : mixer->GetSupportedSoundExtensions()) {
+		const auto filename = epro::format(EPRO_TEXT("./sound/mdfx/{}.{}"), Utils::ToPathString(name), ext);
+		if(Utils::FileExists(filename))
+			return mixer->PlaySound(Utils::ToUTF8IfNeeded(filename));
+	}
+	return false;
+}
 void SoundManager::SetSoundVolume(double volume) {
 	if(!IsUsable())
 		return;

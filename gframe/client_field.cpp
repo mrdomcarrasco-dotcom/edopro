@@ -22,6 +22,7 @@
 #include "CGUITTFont/CGUITTFont.h"
 #include "custom_skin_enum.h"
 #include "fmt.h"
+#include "mdfx.h"
 
 namespace ygo {
 
@@ -949,7 +950,7 @@ void ClientField::GetCardDrawCoordinates(ClientCard* pcard, irr::core::vector3df
 	}
 }
 void ClientField::MoveCard(ClientCard* pcard, float frame) {
-	float milliseconds = frame * 1000.0f / 60.0f;
+	float milliseconds = frame * 1000.0f / 60.0f * mdfx::MoveTimeScale();
 	irr::core::vector3df trans = pcard->curPos;
 	irr::core::vector3df rot = pcard->curRot;
 	GetCardDrawCoordinates(pcard, &trans, &rot);
@@ -979,6 +980,12 @@ void ClientField::MoveCard(ClientCard* pcard, float frame) {
 	pcard->is_moving = true;
 	pcard->refresh_on_stop = true;
 	pcard->aniFrame = milliseconds;
+	pcard->aniStartPos = pcard->curPos;
+	pcard->aniDeltaPos = trans - pcard->curPos;
+	pcard->aniStartRot = pcard->curRot;
+	pcard->aniDeltaRot = pcard->dRot * milliseconds;
+	pcard->aniTotal = (float)pcard->aniFrame;
+	pcard->aniLift = mdfx::MoveLift(pcard->aniDeltaPos.getLength());
 }
 void ClientField::FadeCard(ClientCard* pcard, float alpha, float frame) {
 	float milliseconds = frame * 1000.0f / 60.0f;

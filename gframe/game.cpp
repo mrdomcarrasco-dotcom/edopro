@@ -39,6 +39,7 @@
 #include "file_stream.h"
 #include "porting.h"
 #include "fmt.h"
+#include "mdfx.h"
 
 #if EDOPRO_ANDROID || EDOPRO_IOS
 #include "CGUICustomComboBox/CGUICustomComboBox.h"
@@ -173,6 +174,12 @@ void Game::Initialize() {
 	lpcFont = irr::gui::CGUITTFont::createTTFont(env, numfont, fallbackFonts);
 	if(!numFont || !adFont || !lpcFont)
 		throw std::runtime_error("Failed to load numbers font");
+	{
+		auto bannerfont = gGameConfig->textfont;
+		bannerfont.size = (uint8_t)Scale(30);
+		mdfxFont = irr::gui::CGUITTFont::createTTFont(env, bannerfont, fallbackFonts);
+		mdfx::Init(driver, mdfxFont, lpcFont);
+	}
 	if(!ApplySkin(gGameConfig->skin, false, true)) {
 		gGameConfig->skin = NoSkinLabel();
 		ApplySkin(gGameConfig->skin, false, true);
@@ -2118,6 +2125,12 @@ bool Game::MainLoop() {
 				DrawBackImage(imageManager.tBackGround_duel_topdown, resized);
 			else
 				DrawBackImage(imageManager.tBackGround, resized);
+			mdfx::Update(delta_time);
+			{
+				const auto shake = mdfx::CameraOffset();
+				camera->setPosition(getPosition() + shake);
+				camera->setTarget(irr::core::vector3df(FIELD_X, 0, 0) + shake);
+			}
 			DrawBackGround();
 			DrawCards();
 			DrawMisc();
@@ -2173,6 +2186,8 @@ bool Game::MainLoop() {
 		EnableMaterial2D(true);
 		DrawGUI();
 		DrawSpec();
+		if(dInfo.isInDuel)
+			mdfx::Draw(smgr);
 		EnableMaterial2D(false);
 		if(cardimagetextureloading) {
 			ShowCardInfo(showingcard);

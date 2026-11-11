@@ -22,6 +22,13 @@ public:
 	irr::f32 curAlpha = 255;
 	irr::f32 dAlpha;
 	int32_t aniFrame;
+	// eased movement (mdfx): start, total change, length in ms, lift height
+	irr::core::vector3df aniStartPos;
+	irr::core::vector3df aniDeltaPos;
+	irr::core::vector3df aniStartRot;
+	irr::core::vector3df aniDeltaRot;
+	float aniTotal = 0.0f;
+	float aniLift = 0.0f;
 	bool is_moving;
 	bool refresh_on_stop;
 	bool is_fading;

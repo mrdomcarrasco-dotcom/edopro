@@ -29,6 +29,7 @@
 #include "utils.h"
 #include "porting.h"
 #include "fmt.h"
+#include "mdfx.h"
 
 #define DEFAULT_DUEL_RULE 5
 namespace ygo {
@@ -1621,6 +1622,8 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			} else
 				mainGame->dInfo.vic_string = gDataManager->GetVictoryString(type).data();
 		}
+		if(type == 0x10 && player < 2 && !mainGame->dInfo.isCatchingUp)
+			mainGame->WaitFrameSignal(mdfx::StartCutin(mdfx::Cutin::EXODIA_WIN, 33396948, irr::core::vector3df(), player != 0), lock);
 		mainGame->showcard = 101;
 		mainGame->WaitFrameSignal(120, lock);
 		mainGame->dInfo.vic_string = L"";
@@ -1639,6 +1642,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		if(mainGame->dInfo.compat_mode)
 			/*duel_rule = */BufferIO::Read<uint8_t>(pbuf);
 		auto lock = LockIf();
+		mdfx::Clear();
 		mainGame->wPhase->setVisible(true);
 		if(!mainGame->dInfo.isCatchingUp) {
 			mainGame->showcardcode = 11;
@@ -2535,6 +2539,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 				pcard->dRot.set(0, irr::core::PI / milliseconds, 0);
 			else pcard->dRot.set(0, 0, 0);
 			pcard->is_moving = true;
+			pcard->aniTotal = 0.0f;
 			pcard->aniFrame = milliseconds;
 			mainGame->WaitFrameSignal(45, lock);
 			mainGame->dField.MoveCard(pcard, 5);
@@ -2569,6 +2574,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 				pcard->dPos.set(0.75f / milliseconds, 0, 0);
 			pcard->dRot.set(0, irr::core::PI / milliseconds, 0);
 			pcard->is_moving = true;
+			pcard->aniTotal = 0.0f;
 			pcard->aniFrame = milliseconds;
 			mainGame->WaitFrameSignal(45, lock);
 			mainGame->dField.MoveCard(pcard, 5);
@@ -2610,6 +2616,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 						pcard->dRot.set(0, 0, 0);
 					else pcard->dRot.set(0, irr::core::PI / milliseconds, 0);
 					pcard->is_moving = true;
+					pcard->aniTotal = 0.0f;
 					pcard->aniFrame = milliseconds;
 					mainGame->WaitFrameSignal(45, lock);
 					mainGame->dField.MoveCard(pcard, 5);
@@ -2646,6 +2653,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 					else
 						pcard->dRot.set(irr::core::PI / milliseconds, 0, 0);
 					pcard->is_moving = true;
+					pcard->aniTotal = 0.0f;
 					pcard->aniFrame = milliseconds;
 				} else if (location == LOCATION_SZONE) {
 					if (pcard->position & POS_FACEUP)
@@ -2654,6 +2662,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 					pcard->dPos.set(0, 0, 0);
 					pcard->dRot.set(0, irr::core::PI / milliseconds, 0);
 					pcard->is_moving = true;
+					pcard->aniTotal = 0.0f;
 					pcard->aniFrame = milliseconds;
 				}
 			}
@@ -2709,6 +2718,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 					pcard->dPos.set((rand() * 1.2f / RAND_MAX - 0.2f) / milliseconds, 0, 0);
 					pcard->dRot.set(0, 0, 0);
 					pcard->is_moving = true;
+					pcard->aniTotal = 0.0f;
 					pcard->aniFrame = milliseconds;
 				}
 				mainGame->WaitFrameSignal(3, lock);
@@ -2739,6 +2749,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 						pcard->dPos.set(0, 0, 0);
 						pcard->dRot.set(1.322f / milliseconds, irr::core::PI / milliseconds, 0);
 						pcard->is_moving = true;
+						pcard->aniTotal = 0.0f;
 						pcard->is_hovered = false;
 						pcard->aniFrame = milliseconds;
 						flip = true;
@@ -2751,6 +2762,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 				pcard->dPos.set((3.9f - pcard->curPos.X) / milliseconds, 0, 0);
 				pcard->dRot.set(0, 0, 0);
 				pcard->is_moving = true;
+				pcard->aniTotal = 0.0f;
 				pcard->is_hovered = false;
 				pcard->aniFrame = milliseconds;
 			}
@@ -2784,6 +2796,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 						pcard->dPos.set((rand() * 1.2f / RAND_MAX - 0.2f) / milliseconds, 0, 0);
 						pcard->dRot.set(0, 0, 0);
 						pcard->is_moving = true;
+						pcard->aniTotal = 0.0f;
 						pcard->aniFrame = milliseconds;
 					}
 				}
@@ -2893,6 +2906,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 				mc[i]->dPos.set((3.95f - mc[i]->curPos.X) / milliseconds, 0, 0.5f / milliseconds);
 				mc[i]->dRot.set(0, 0, 0);
 				mc[i]->is_moving = true;
+				mc[i]->aniTotal = 0.0f;
 				mc[i]->aniFrame = milliseconds;
 			}
 		}
@@ -3123,6 +3137,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 						pcard->dRot.set(0, 0, 0);
 						if (previous.controler == 1) pcard->dPos.X *= -0.1f;
 						pcard->is_moving = true;
+						pcard->aniTotal = 0.0f;
 						pcard->aniFrame = milliseconds;
 						mainGame->WaitFrameSignal(5, lock);
 						mainGame->dField.MoveCard(pcard, 5);
@@ -3274,12 +3289,21 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 	}
 	case MSG_SUMMONING: {
 		const auto code = BufferIO::Read<uint32_t>(pbuf);
-		/*CoreUtils::loc_info info = CoreUtils::ReadLocInfo(pbuf, mainGame->dInfo.compat_mode);*/
-		if(!PlayChant(SoundManager::CHANT::SUMMON, code))
+		CoreUtils::loc_info info = CoreUtils::ReadLocInfo(pbuf, mainGame->dInfo.compat_mode);
+		const auto cutin = mainGame->dInfo.isCatchingUp ? mdfx::Cutin::NONE : mdfx::CutinFor(code);
+		if(!PlayChant(SoundManager::CHANT::SUMMON, code) && cutin == mdfx::Cutin::NONE)
 			Play(SoundManager::SFX::SUMMON);
 		if(!mainGame->dInfo.isCatchingUp) {
 			std::unique_lock<epro::mutex> lock(mainGame->gMutex);
 			event_string = epro::sprintf(gDataManager->GetSysString(1603), gDataManager->GetName(code));
+			const auto self = mainGame->LocalPlayer(info.controler);
+			ClientCard* scard = mainGame->dField.GetCard(self, info.location, info.sequence);
+			if(cutin != mdfx::Cutin::NONE) {
+				mainGame->WaitFrameSignal(mdfx::StartCutin(cutin, code, scard ? scard->curPos : irr::core::vector3df(), self == 1), lock);
+				return true;
+			}
+			if(scard)
+				mdfx::SummonImpact(scard->curPos, (int)std::max(scard->level, scard->rank), false);
 			mainGame->showcardcode = code;
 			mainGame->showcarddif = 0;
 			mainGame->showcardp = 0;
@@ -3296,12 +3320,21 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 	}
 	case MSG_SPSUMMONING: {
 		const auto code = BufferIO::Read<uint32_t>(pbuf);
-		/*CoreUtils::loc_info info = CoreUtils::ReadLocInfo(pbuf, mainGame->dInfo.compat_mode);*/
-		if(!PlayChant(SoundManager::CHANT::SUMMON, code))
+		CoreUtils::loc_info info = CoreUtils::ReadLocInfo(pbuf, mainGame->dInfo.compat_mode);
+		const auto cutin = mainGame->dInfo.isCatchingUp ? mdfx::Cutin::NONE : mdfx::CutinFor(code);
+		if(!PlayChant(SoundManager::CHANT::SUMMON, code) && cutin == mdfx::Cutin::NONE)
 			Play(SoundManager::SFX::SPECIAL_SUMMON);
 		if(!mainGame->dInfo.isCatchingUp) {
 			std::unique_lock<epro::mutex> lock(mainGame->gMutex);
 			event_string = epro::sprintf(gDataManager->GetSysString(1605), gDataManager->GetName(code));
+			const auto self = mainGame->LocalPlayer(info.controler);
+			ClientCard* scard = mainGame->dField.GetCard(self, info.location, info.sequence);
+			if(cutin != mdfx::Cutin::NONE) {
+				mainGame->WaitFrameSignal(mdfx::StartCutin(cutin, code, scard ? scard->curPos : irr::core::vector3df(), self == 1), lock);
+				return true;
+			}
+			if(scard)
+				mdfx::SummonImpact(scard->curPos, (int)std::max(scard->level, scard->rank), true);
 			mainGame->showcardcode = code;
 			mainGame->showcarddif = 1;
 			mainGame->showcard = 5;
@@ -3362,6 +3395,9 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 				mainGame->dField.MoveCard(pcard, 10);
 		}
 		if(!mainGame->dInfo.isCatchingUp) {
+			if(mdfx::CutinFor(code) == mdfx::Cutin::ORICHALCOS)
+				mainGame->WaitFrameSignal(mdfx::StartCutin(mdfx::Cutin::ORICHALCOS, code, pcard->curPos, cc == 1), lock);
+			mdfx::ChainStamp(pcard->curPos, (int)mainGame->dField.chains.size() + 1, cc == 1);
 			mainGame->showcardcode = code;
 			mainGame->showcarddif = 0;
 			mainGame->showcard = 1;
@@ -3373,6 +3409,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 				pcard->dPos.set(shift, 0, 0);
 				pcard->dRot.set(0, 0, 0);
 				pcard->is_moving = true;
+				pcard->aniTotal = 0.0f;
 				pcard->aniFrame = milliseconds;
 				mainGame->WaitFrameSignal(30, lock);
 				mainGame->dField.MoveCard(pcard, 5);
@@ -3422,6 +3459,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		if(!mainGame->dInfo.isCatchingUp) {
 			if(mainGame->dField.last_chain)
 				mainGame->WaitFrameSignal(11, lock);
+			mdfx::ResolveFlash(mainGame->dField.chains[ct - 1].chain_pos, ct);
 			for(int i = 0; i < 5; ++i) {
 				mainGame->dField.chains[ct - 1].solved = false;
 				mainGame->WaitFrameSignal(3, lock);
@@ -3509,6 +3547,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 				pcard->dPos.set(shift, 0, 0);
 				pcard->dRot.set(0, 0, 0);
 				pcard->is_moving = true;
+				pcard->aniTotal = 0.0f;
 				pcard->aniFrame = milliseconds;
 				mainGame->WaitFrameSignal(30, lock);
 				mainGame->dField.MoveCard(pcard, 5);
@@ -3558,6 +3597,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			final = 0;
 		auto lock = LockIf();
 		if(!mainGame->dInfo.isCatchingUp) {
+			mdfx::Damage((int)val, player == 0);
 			mainGame->lpd = (mainGame->dInfo.lp[player] - final) / 10;
 			event_string = epro::sprintf(gDataManager->GetSysString(1613 + player), val);
 			mainGame->lpccolor = 0xff0000;
@@ -4081,6 +4121,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 					else pcard->dPos.Y = -3.0f / milliseconds;
 					pcard->dRot.set(0, 0, 0);
 					pcard->is_moving = true;
+					pcard->aniTotal = 0.0f;
 					pcard->aniFrame = milliseconds;
 				}
 			}

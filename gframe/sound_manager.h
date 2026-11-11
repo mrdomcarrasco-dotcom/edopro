@@ -71,6 +71,8 @@ public:
 	void PlaySoundEffect(SFX sound);
 	void PlayBGM(BGM scene, bool loop = true);
 	bool PlayChant(CHANT chant, uint32_t code);
+	// Progression effects: plays ./sound/mdfx/<name>.<ext> if it exists
+	bool PlayFx(epro::stringview name);
 	void SetSoundVolume(double volume);
 	void SetMusicVolume(double volume);
 	void EnableSounds(bool enable);

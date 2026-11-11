@@ -12,6 +12,7 @@
 #include "CGUIImageButton/CGUIImageButton.h"
 #include "custom_skin_enum.h"
 #include "image_manager.h"
+#include "mdfx.h"
 #include "fmt.h"
 #include "utils.h"
 
@@ -355,7 +356,15 @@ void Game::DrawCards() {
 void Game::DrawCard(ClientCard* pcard) {
 	if(pcard->aniFrame > 0) {
 		uint32_t movetime = std::min<uint32_t>(delta_time, pcard->aniFrame);
-		if(pcard->is_moving) {
+		if(pcard->is_moving && pcard->aniTotal > 0.0f) {
+			const float t = std::min(1.0f, 1.0f - (float)(pcard->aniFrame - (int32_t)movetime) / pcard->aniTotal);
+			const float e = mdfx::EaseMove(t);
+			pcard->curPos = pcard->aniStartPos + pcard->aniDeltaPos * e;
+			pcard->curPos.Z += pcard->aniLift * std::sin(t * irr::core::PI);
+			pcard->curRot = pcard->aniStartRot + pcard->aniDeltaRot * e;
+			pcard->mTransform.setTranslation(pcard->curPos);
+			pcard->mTransform.setRotationRadians(pcard->curRot);
+		} else if(pcard->is_moving) {
 			pcard->curPos += (pcard->dPos * movetime);
 			pcard->curRot += (pcard->dRot * movetime);
 			pcard->mTransform.setTranslation(pcard->curPos);
@@ -366,6 +375,7 @@ void Game::DrawCard(ClientCard* pcard) {
 		pcard->aniFrame -= movetime;
 		if(pcard->aniFrame <= 0) {
 			pcard->aniFrame = 0;
+			pcard->aniTotal = 0.0f;
 			pcard->is_moving = false;
 			pcard->is_fading = false;
 			if(std::exchange(pcard->refresh_on_stop, false))
