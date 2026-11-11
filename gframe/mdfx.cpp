@@ -272,6 +272,36 @@ std::pair<video::ITexture*, core::rect<s32>> Illustration(uint32_t code) {
 	return r;
 }
 
+// authored title art (tools/mdfx_skin.py -> <EDOPRO>/pics/mdfx/ui/<key>.png): banner words, CHAIN/RESOLVE,
+// chain numerals n1..n6, the chain link and the banner band. Missing files fall back to text.
+std::map<std::string, video::ITexture*> uiCache;
+video::ITexture* Ui(const std::string& key) {
+	auto it = uiCache.find(key);
+	if(it != uiCache.end()) return it->second;
+	auto* t = LoadFile(epro::format(EPRO_TEXT("./pics/mdfx/ui/{}.png"), Utils::ToPathString(key)));
+	uiCache[key] = t;
+	return t;
+}
+std::string KeyOf(const std::wstring& text) {
+	std::string k;
+	for(wchar_t ch : text) {
+		if(ch == L' ') k += '_';
+		else if((ch >= L'a' && ch <= L'z') || (ch >= L'0' && ch <= L'9')) k += (char)ch;
+		else if(ch >= L'A' && ch <= L'Z') k += (char)(ch - L'A' + L'a');
+	}
+	return k;
+}
+// a title image centred at (cx, cy), height h, alpha a; glint = 0..1 position of a light sweep (<0 none)
+void Title(video::ITexture* tex, float cx, float cy, float h, float a, float scale, float glint) {
+	const auto ts = tex->getOriginalSize();
+	const float w = h * ts.Width / (float)ts.Height;
+	Quad(tex, { cx, cy }, w * scale, h * scale, 0.f, col(a, { 255, 255, 255, 255 }), false);
+	if(glint >= 0.f && glint <= 1.f) {
+		const float gx = cx - w * 0.6f + glint * w * 1.2f;
+		Quad(tStreak, { gx, cy }, h * 1.4f, h * 1.2f, 1.2f, addc(a * 0.55f * std::sin(glint * PI), { 255, 255, 250, 225 }), true);
+	}
+}
+
 void PlayFx(const char* name) {
 	if(gSoundManager)
 		gSoundManager->PlayFx(name);
@@ -708,7 +738,20 @@ void DrawSparks() {
 
 // ---------------------------------------------------------------- letters that fly in and assemble
 void AssembleWord(const std::wstring& word, float t, float tin, float tout, float y, video::SColor glow) {
-	if(!F.big || t < 0.f) return;
+	if(t < 0.f) return;
+	if(auto* img = Ui(KeyOf(word))) {
+		// title art: punches in from 1.6x with a flash, settles, a glint sweeps across, then lifts and fades
+		const float p = outCubic(t / 220.f);
+		const float out = smooth(tout, tout + 180.f, t);
+		const float a = clamp01(t / 90.f) * (1.f - out);
+		const float h = 0.17f * SH();
+		const float scale = (1.6f - 0.6f * p) * (1.f + 0.12f * out);
+		const float cy = y + h * 0.35f - 20.f * S() * out;
+		Quad(tGlow, { SW() / 2.f, cy }, h * 6.f, h * 2.2f, 0.f, addc(a * (0.45f + 0.5f * (1.f - p)), glow), true);
+		Title(img, SW() / 2.f, cy, h, a, scale, (t - 260.f) / 420.f);
+		return;
+	}
+	if(!F.big) return;
 	const auto full = TextSize(F.big, word);
 	float x = SW() / 2.f - full.Width / 2.f;
 	const float s = S();
@@ -748,8 +791,13 @@ void ChainStack(const std::vector<uint32_t>& codes, int upto, float a, float app
 		const auto d = p1 - p0;
 		const float len = (float)d.getLength(), ang = std::atan2(d.Y, d.X);
 		const int links = std::max(3, (int)(len / (24.f * s)));
-		for(int l = 0; l < links; ++l)
-			Quad(tLink, p0 + d * ((l + 0.5f) / links), 30.f * s, (l % 2 ? 8.f : 16.f) * s, ang, col(a * 0.95f, { 255, 190, 200, 215 }), false);
+		auto* linkArt = Ui("link");
+		for(int l = 0; l < links; ++l) {
+			if(linkArt)
+				Quad(linkArt, p0 + d * ((l + 0.5f) / links), 34.f * s, (l % 2 ? 20.f : 34.f) * s, ang + (l % 2 ? 0.f : 1.57f), col(a, { 255, 255, 255, 255 }), false);
+			else
+				Quad(tLink, p0 + d * ((l + 0.5f) / links), 30.f * s, (l % 2 ? 8.f : 16.f) * s, ang, col(a * 0.95f, { 255, 190, 200, 215 }), false);
+		}
 	}
 	for(int i = 0; i < shown; ++i) {
 		const int link = first + i + 1;
@@ -764,7 +812,11 @@ void ChainStack(const std::vector<uint32_t>& codes, int upto, float a, float app
 		Quad(tGlow, at[i], w * 1.5f, h * 1.3f, rot, addc(aa * (lit ? 0.9f + flash : 0.35f), lit ? video::SColor(255, 255, 255, 255) : video::SColor(255, 90, 200, 255)), true);
 		Quad(art, Full(art), at[i], w, h, rot, col(aa, { 255, 255, 255, 255 }), false);
 		if(lit && flash > 0.f) Quad(art, Full(art), at[i], w, h, rot, addc(flash * 0.8f, { 255, 255, 255, 255 }), true);
-		if(F.num) {
+		if(auto* digit = link <= 6 ? Ui(epro::format("n{}", link)) : nullptr) {
+			const core::vector2df corner = at[i] + core::vector2df((i % 2 ? 0.46f : -0.46f) * w, (i % 2 ? 0.34f : -0.40f) * h);
+			const float dh = 0.62f * h * (1.f + 0.4f * (1.f - pk));
+			Quad(digit, corner, dh, dh, 0.f, col(aa, { 255, 255, 255, 255 }), false);
+		} else if(F.num) {
 			const std::wstring num = epro::format(L"{}", link);
 			const auto d = TextSize(F.num, num);
 			const core::vector2df corner = at[i] + core::vector2df((i % 2 ? 0.42f : -0.42f) * w, (i % 2 ? 0.36f : -0.42f) * h);
@@ -1037,9 +1089,29 @@ void DrawExodia() {
 
 // ---------------------------------------------------------------- phase / turn bands (~0.9 s)
 void DrawBanner() {
-	if(!F.big) return;
 	const float t = ov.t, D = ov.dur, s = S();
 	const float W = SW(), H = SH();
+	if(auto* img = Ui(ov.turn ? std::string(ov.mine ? "your_turn" : "opponents_turn") : KeyOf(ov.text))) {
+		// band sweeps open from the centre, the title slides in fast and eases, glint, then both slide out
+		const float open = outQuint(t / 200.f), close = smooth(D - 170.f, D, t);
+		const float a = open * (1.f - close);
+		const float bandH = 0.15f * H * (ov.turn ? 1.2f : 1.f);
+		const float cy = 0.5f * H;
+		if(auto* band = Ui("band"))
+			Quad(band, { W / 2.f, cy }, W * 1.05f * open, bandH, 0.f, col(a * 0.95f, { 255, 255, 255, 255 }), false);
+		else
+			FillRect(0, (s32)(cy - bandH / 2.f), (s32)W, (s32)(cy + bandH / 2.f), col(a * 0.7f, { 255, 8, 12, 20 }));
+		const video::SColor glow = ov.turn ? (ov.mine ? video::SColor(255, 60, 200, 210) : video::SColor(255, 220, 40, 40))
+										   : video::SColor(255, 200, 160, 70);
+		Quad(tGlow, { W / 2.f, cy }, W * 0.9f, bandH * 1.8f, 0.f, addc(a * (ov.turn ? 0.6f : 0.35f), glow), true);
+		const float slideIn = outQuint((t - 40.f) / 260.f), slideOut = smooth(D - 200.f, D, t);
+		const float tx = W / 2.f + (1.f - slideIn) * -0.35f * W + slideOut * 0.25f * W;
+		Title(img, tx, cy, bandH * 0.78f, clamp01((t - 40.f) / 120.f) * (1.f - slideOut), 1.f, (t - 300.f) / 380.f);
+		if(ov.turn && t < 200.f)
+			Quad(tStreak, { W * (t / 200.f), cy }, W * 0.5f, bandH, 0.f, addc(0.9f * (1.f - t / 200.f), { 255, 255, 255, 255 }), true);
+		return;
+	}
+	if(!F.big) return;
 	const float bandA = window(t, 0.f, D, 90.f, 150.f);
 	const s32 h = (s32)(0.11f * H * (ov.turn ? 1.15f : 1.f));
 	const s32 y = (s32)(0.5f * H) - h / 2 - (s32)(ov.turn ? smooth(D - 120.f, D, t) * 20.f * s : 0.f);
