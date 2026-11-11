@@ -175,10 +175,20 @@ void Game::Initialize() {
 	if(!numFont || !adFont || !lpcFont)
 		throw std::runtime_error("Failed to load numbers font");
 	{
+		// the Progression display face (Cinzel Decorative, OFL) when installed, else the text font
+		const epro::path_string display = EPRO_TEXT("./fonts/progression-display.ttf");
+		const bool hasDisplay = Utils::FileExists(display);
 		auto make = [&](int size) {
 			auto font = gGameConfig->textfont;
+			if(hasDisplay) font.font = display;
 			font.size = (uint8_t)Scale(size);
-			return irr::gui::CGUITTFont::createTTFont(env, font, fallbackFonts);
+			auto* f = irr::gui::CGUITTFont::createTTFont(env, font, fallbackFonts);
+			if(!f && hasDisplay) {
+				font = gGameConfig->textfont;
+				font.size = (uint8_t)Scale(size);
+				f = irr::gui::CGUITTFont::createTTFont(env, font, fallbackFonts);
+			}
+			return f;
 		};
 		mdfx::Fonts fonts;
 		fonts.plate = mdfxFont = make(30);
@@ -186,8 +196,11 @@ void Game::Initialize() {
 		fonts.statline = make(17);
 		fonts.num = lpcFont;
 		{
-			GameConfig::TextFont lpfont{ gGameConfig->numfont, (uint8_t)Scale(34) };
-			fonts.lp = irr::gui::CGUITTFont::createTTFont(env, lpfont, fallbackFonts);
+			fonts.lp = hasDisplay ? make(30) : nullptr;
+			if(!fonts.lp) {
+				GameConfig::TextFont lpfont{ gGameConfig->numfont, (uint8_t)Scale(34) };
+				fonts.lp = irr::gui::CGUITTFont::createTTFont(env, lpfont, fallbackFonts);
+			}
 		}
 		fonts.name = make(15);
 		mdfx::Init(driver, fonts);

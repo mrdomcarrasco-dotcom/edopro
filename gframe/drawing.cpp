@@ -603,7 +603,7 @@ void Game::DrawMisc() {
 		lpcalpha -= 0x19 * delta_frames;
 		lpframe -= delta_frames;
 	}
-	if(lpcstring.size()) {
+	if(lpcstring.size() && !mdfx::LpNumber(lpcstring, lpplayer, lpframe)) {
 		if(lpplayer == 0)
 			DrawShadowText(lpcFont, lpcstring, Resize(400, 470, 920, 520), Resize(0, 2, 2, 0), (lpcalpha << 24) | lpccolor, (lpcalpha << 24) | 0x00ffffff, true);
 		else

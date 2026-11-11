@@ -67,6 +67,8 @@ struct HudInfo {
 bool DrawHud(const HudInfo& info); // false -> caller draws the stock LP bars
 // dark gold-edged backdrop for small field text (ATK/DEF, pile counts); no-op when effects are off
 void Pill(const irr::core::recti& r);
+// the big LP change number ("-3000", "+500") as title-art digits; false -> caller draws EDOPRO's text
+bool LpNumber(const std::wstring& text, int player, int framesLeft);
 
 // --- test aids (environment variables, off unless set) ---
 // MDFX_AUTOPUZZLE=<puzzle path>: start that puzzle from the main menu. MDFX_CAPTURE=<dir>: write the
