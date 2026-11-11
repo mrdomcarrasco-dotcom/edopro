@@ -183,7 +183,7 @@ void Game::Initialize() {
 		mdfx::Fonts fonts;
 		fonts.plate = mdfxFont = make(30);
 		fonts.big = make(54);
-		fonts.small = make(17);
+		fonts.statline = make(17);
 		fonts.num = lpcFont;
 		mdfx::Init(driver, fonts);
 	}

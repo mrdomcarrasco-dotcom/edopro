@@ -23,7 +23,7 @@ enum class Cutin : uint8_t { NONE, OBELISK, SLIFER, RA, ACE, ORICHALCOS };
 struct Fonts {
 	irr::gui::CGUITTFont* plate = nullptr; // name plate (~30 px)
 	irr::gui::CGUITTFont* big = nullptr;   // CHAIN / RESOLVE / banners (~56 px)
-	irr::gui::CGUITTFont* small = nullptr; // ATK / DEF line (~18 px)
+	irr::gui::CGUITTFont* statline = nullptr; // ATK / DEF line (~18 px)
 	irr::gui::CGUITTFont* num = nullptr;   // chain numerals (EDOPRO's lpcFont)
 };
 void Init(irr::video::IVideoDriver* driver, const Fonts& fonts);

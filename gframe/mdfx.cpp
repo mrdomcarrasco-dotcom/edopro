@@ -807,9 +807,9 @@ void DrawCutin() {
 		const auto d = TextSize(F.plate, ov.name);
 		Text(F.plate, ov.name, textX, (y0 + y1) / 2.f - d.Height / 2.f, col(textA, { 255, 255, 255, 255 }), textA * 0.9f, 2);
 	}
-	if(F.small && !ov.stats.empty()) {
-		const auto d = TextSize(F.small, ov.stats);
-		Text(F.small, ov.stats, textX + 6.f * s, (y1 + y2) / 2.f - d.Height / 2.f, col(textA, { 255, 236, 240, 255 }), textA * 0.7f, 1);
+	if(F.statline && !ov.stats.empty()) {
+		const auto d = TextSize(F.statline, ov.stats);
+		Text(F.statline, ov.stats, textX + 6.f * s, (y1 + y2) / 2.f - d.Height / 2.f, col(textA, { 255, 236, 240, 255 }), textA * 0.7f, 1);
 	}
 	// level stars pop in left to right, ~30 ms apart, from ~600 ms (white dot, then gold)
 	for(int i = 0; i < ov.stars && i < 13; ++i) {
