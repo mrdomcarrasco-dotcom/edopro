@@ -210,11 +210,27 @@ void Line(core::vector2df a, core::vector2df b, float width, video::SColor c) {
 }
 void FillRect(s32 x0, s32 y0, s32 x1, s32 y1, video::SColor c) { drv->draw2DRectangle(c, core::rect<s32>(x0, y0, x1, y1)); }
 
+video::ITexture* LoadFile(const epro::path_string& file) {
+	if(!Utils::FileExists(file)) return nullptr;
+	return drv->getTexture({ file.data(), static_cast<u32>(file.size()) });
+}
+uint32_t BaseCode(uint32_t code) {
+	const auto* data = gDataManager->GetCardData(code);
+	return (data && data->alias && data->alias != code) ? data->alias : code;
+}
+// high-resolution pictures the Progression app installs for the scene cards (tools/mdfx_art.py)
+video::ITexture* HiRes(uint32_t code, bool full) {
+	const auto dir = full ? EPRO_TEXT("./pics/mdfx/full/") : EPRO_TEXT("./pics/mdfx/");
+	if(auto* t = LoadFile(epro::format(EPRO_TEXT("{}{}.jpg"), dir, code))) return t;
+	const auto base = BaseCode(code);
+	return base != code ? LoadFile(epro::format(EPRO_TEXT("{}{}.jpg"), dir, base)) : nullptr;
+}
 video::ITexture* Art(uint32_t code) {
 	auto it = artCache.find(code);
 	if(it != artCache.end())
 		return it->second;
-	video::ITexture* tex = nullptr;
+	video::ITexture* tex = HiRes(code, true);
+	if(tex) { artCache[code] = tex; return tex; }
 	for(auto& dir : mainGame->pic_dirs) {
 		if(dir == EPRO_TEXT("archives"))
 			continue;
@@ -242,6 +258,17 @@ core::rect<s32> Full(video::ITexture* tex) { const auto s = tex->getOriginalSize
 core::rect<s32> ArtBox(video::ITexture* tex) {
 	const auto s = tex->getOriginalSize();
 	return core::rect<s32>((s32)(s.Width * 0.123f), (s32)(s.Height * 0.185f), (s32)(s.Width * 0.877f), (s32)(s.Height * 0.703f));
+}
+// the illustration: a high-resolution art crop if installed, else cut out of the card picture
+std::map<uint32_t, std::pair<video::ITexture*, core::rect<s32>>> illoCache;
+std::pair<video::ITexture*, core::rect<s32>> Illustration(uint32_t code) {
+	auto it = illoCache.find(code);
+	if(it != illoCache.end()) return it->second;
+	std::pair<video::ITexture*, core::rect<s32>> r{ nullptr, {} };
+	if(auto* crop = HiRes(code, false)) r = { crop, Full(crop) };
+	else if(auto* card = Art(code)) r = { card, ArtBox(card) };
+	illoCache[code] = r;
+	return r;
 }
 
 void PlayFx(const char* name) {
@@ -732,13 +759,14 @@ void DrawCutin() {
 		Quad(tGlow, { x, y }, r, r, 0.f, addc(lines * 0.45f, { 255, 80, 170, 255 }), true);
 	}
 	// the illustration: ~70% of screen height, pushing in 0.85 -> 1.0, slow parallax drift
-	auto* art = Art(ov.code);
+	const auto illo = Illustration(ov.code);
+	auto* art = illo.first;
 	if(art) {
 		const float push = 0.85f + 0.15f * outCubic(t / (D - 150.f));
 		const float h = 0.70f * H * push, w = h;
 		const core::vector2df p = c + core::vector2df(t * 0.012f * s, -0.04f * H);
 		Quad(tGlow, p, w * 1.5f, h * 1.5f, 0.f, addc(0.6f * live, ov.tint), true);
-		Quad(art, ArtBox(art), p, w, h, 0.f, col(live, { 255, 255, 255, 255 }), false);
+		Quad(art, illo.second, p, w, h, 0.f, col(live, { 255, 255, 255, 255 }), false);
 		// tendrils of energy whipping in from the edges, 100-300 ms
 		if(t > 100.f && t < 420.f) {
 			const float k = clamp01((t - 100.f) / 200.f);
@@ -896,7 +924,8 @@ void DrawExodia() {
 		ov.acc = 0.f;
 	}
 	// 3700-5750 a dark figure emerges in the fire; 5750 reveal slash; hold and push in
-	auto* head = Art(33396948);
+	const auto headIllo = Illustration(33396948);
+	auto* head = headIllo.first;
 	if(head && t > 3700.f && t < 9600.f) {
 		const float appear = smooth(3700.f, 5000.f, t);
 		const float reveal = smooth(5750.f, 5900.f, t);
@@ -904,7 +933,7 @@ void DrawExodia() {
 		const float h = 0.82f * H * push, w = h;
 		const core::vector2df p = c + core::vector2df(0.f, -0.02f * H);
 		const video::SColor shade = lerpc({ 255, 20, 6, 4 }, { 255, 255, 255, 255 }, reveal);
-		Quad(head, ArtBox(head), p, w, h, 0.f, col(appear, shade), false);
+		Quad(head, headIllo.second, p, w, h, 0.f, col(appear, shade), false);
 		if(t > 5750.f && t < 6050.f) {
 			const float k = (t - 5750.f) / 300.f;
 			Quad(tStreak, p + core::vector2df((k - 0.5f) * 0.9f * W, (k - 0.5f) * 0.5f * H), W * 0.9f, 60.f * s, 0.5f, addc(1.f - k, { 255, 255, 220, 140 }), true);
