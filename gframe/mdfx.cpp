@@ -246,11 +246,17 @@ video::ITexture* Art(uint32_t code) {
 	}
 	if(!tex) {
 		const auto* data = gDataManager->GetCardData(code);
-		if(data && data->alias && data->alias != code)
+		if(data && data->alias && data->alias != code) {
 			tex = Art(data->alias);
+			const auto own = artCache.find(data->alias);
+			if(own == artCache.end() || own->second != tex)
+				return tex;   // the alias's picture is the image manager's: don't keep it either
+		}
 	}
+	// EDOPRO's own card picture: owned by the image manager, which frees it whenever it resets its cache, so it is
+	// never kept here (a kept pointer crashed the chain stack once the picture was gone). Asked for again every frame.
 	if(!tex)
-		tex = mainGame->imageManager.GetTextureCard(code, ygo::imgType::ART);
+		return mainGame->imageManager.GetTextureCard(code, ygo::imgType::ART);
 	artCache[code] = tex;
 	return tex;
 }
@@ -268,7 +274,10 @@ std::pair<video::ITexture*, core::rect<s32>> Illustration(uint32_t code) {
 	std::pair<video::ITexture*, core::rect<s32>> r{ nullptr, {} };
 	if(auto* crop = HiRes(code, false)) r = { crop, Full(crop) };
 	else if(auto* card = Art(code)) r = { card, ArtBox(card) };
-	illoCache[code] = r;
+	// only cache textures mdfx loaded itself (see Art): an image-manager picture can be freed at any time
+	const auto own = artCache.find(code);
+	if(r.first && HiRes(code, false) == r.first || (own != artCache.end() && own->second == r.first))
+		illoCache[code] = r;
 	return r;
 }
 
