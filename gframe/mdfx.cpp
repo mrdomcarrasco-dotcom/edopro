@@ -226,6 +226,18 @@ video::ITexture* HiRes(uint32_t code, bool full) {
 	const auto base = BaseCode(code);
 	return base != code ? LoadFile(epro::format(EPRO_TEXT("{}{}.jpg"), dir, base)) : nullptr;
 }
+// a private copy of a card picture under an "mdfx:" name. drv->getTexture(file) would hand back the SAME texture the
+// image manager loads from that path, and the image manager removes it on a cache reset, leaving our cached pointer
+// dead (chain stack SIGSEGV in STextureCache::set, 2026-11-14). The driver never shares a texture with this name.
+video::ITexture* OwnTexture(const epro::path_string& file) {
+	const epro::path_string name = EPRO_TEXT("mdfx:") + file;
+	if(auto* t = drv->findTexture({ name.data(), static_cast<u32>(name.size()) })) return t;
+	auto* img = drv->createImageFromFile({ file.data(), static_cast<u32>(file.size()) });
+	if(!img) return nullptr;
+	auto* t = drv->addTexture({ name.data(), static_cast<u32>(name.size()) }, img);
+	img->drop();
+	return t;
+}
 video::ITexture* Art(uint32_t code) {
 	auto it = artCache.find(code);
 	if(it != artCache.end())
@@ -238,7 +250,7 @@ video::ITexture* Art(uint32_t code) {
 		for(auto ext : { EPRO_TEXT(".jpg"), EPRO_TEXT(".png") }) {
 			const epro::path_string file = epro::format(EPRO_TEXT("{}{}{}"), dir, code, ext);
 			if(Utils::FileExists(file)) {
-				tex = drv->getTexture({ file.data(), static_cast<u32>(file.size()) });
+				tex = OwnTexture(file);
 				if(tex) break;
 			}
 		}
