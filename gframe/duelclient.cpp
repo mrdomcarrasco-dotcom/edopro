@@ -23,6 +23,7 @@
 #include "game.h"
 #include "replay.h"
 #include "replay_mode.h"
+#include "battle_royal.h"
 #include "sound_manager.h"
 #include "CGUIImageButton/CGUIImageButton.h"
 #include "progressivebuffer.h"
@@ -257,6 +258,16 @@ catch(...) { what = def; }
 #undef TOI
 			if(mainGame->btnRelayMode->isPressed())
 				cscg.info.duel_flag_low |= DUEL_RELAY;
+			if(mainGame->chkBattleRoyal->isChecked()) {
+				// Battle Royal: 3 or 4 seats; a 1v1 room becomes 4 players
+				cscg.info.duel_flag_high |= static_cast<uint32_t>(DUEL_BATTLE_ROYAL >> 32);
+				cscg.info.duel_flag_low &= ~static_cast<uint32_t>(DUEL_RELAY);
+				cscg.info.team1 = std::min(cscg.info.team1, 2);
+				cscg.info.team2 = std::min(cscg.info.team2, 2);
+				if(cscg.info.team1 + cscg.info.team2 < 3)
+					cscg.info.team1 = cscg.info.team2 = 2;
+				cscg.info.best_of = 1;
+			}
 			if(cscg.info.no_shuffle_deck)
 				cscg.info.duel_flag_low |= DUEL_PSEUDO_SHUFFLE;
 			cscg.info.forbiddentypes = mainGame->forbiddentypes;
@@ -724,6 +735,10 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 		mainGame->dInfo.duel_params = params;
 		mainGame->dInfo.isRelay = params & DUEL_RELAY;
 		params &= ~DUEL_RELAY;
+		const bool battle_royal_room = (params & DUEL_BATTLE_ROYAL) != 0;
+		params &= ~DUEL_BATTLE_ROYAL;
+		if(battle_royal_room) // this client follows the duel while its seat is offstage (MSG_SEAT_*)
+			SendPacketToServer(CTOS_BR_CLIENT);
 		pkt.info.no_shuffle_deck = (pkt.info.no_shuffle_deck != 0) || ((params & DUEL_PSEUDO_SHUFFLE) != 0);
 		params &= ~DUEL_PSEUDO_SHUFFLE;
 		mainGame->dInfo.team1 = pkt.info.team1;
@@ -735,7 +750,10 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 		if(mainGame->dInfo.compat_mode)
 			str.append(epro::format(L"{}{}\n", gDataManager->GetSysString(1227), gDataManager->GetSysString(1244 + pkt.info.mode)));
 		else {
-			str.append(epro::format(L"{}{} {}{}\n", gDataManager->GetSysString(1227), gDataManager->GetSysString(1381), mainGame->dInfo.best_of, mainGame->dInfo.isRelay ? L" Relay" : L""));
+			if(battle_royal_room)
+				str.append(epro::format(L"{}Battle Royal ({} players, free-for-all)\n", gDataManager->GetSysString(1227), pkt.info.team1 + pkt.info.team2));
+			else
+				str.append(epro::format(L"{}{} {}{}\n", gDataManager->GetSysString(1227), gDataManager->GetSysString(1381), mainGame->dInfo.best_of, mainGame->dInfo.isRelay ? L" Relay" : L""));
 		}
 		if(pkt.info.time_limit) {
 			str.append(epro::format(L"{}{}\n", gDataManager->GetSysString(1237), pkt.info.time_limit));
@@ -1608,7 +1626,13 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		mainGame->dInfo.vic_string = L"";
 		mainGame->showcardcode = 3;
 		std::wstring formatted_string = L"";
-		if(player < 2) {
+		if(player < 2 && mainGame->dInfo.br.active) {
+			const auto& br = mainGame->dInfo.br;
+			const auto seat = br.slot_seat[player];
+			mainGame->showcardcode = (br.my_seat == 0xff || seat == br.my_seat) ? 1 : 2;
+			mainGame->dInfo.vic_string = epro::format(L"{} wins the Battle Royal", seat < 4 ? br.seats[seat].name : L"?");
+			player = 2; // no further name lookups below
+		} else if(player < 2) {
 			player = mainGame->LocalPlayer(player);
 			mainGame->showcardcode = player + 1;
 			if(match_kill)
@@ -1622,7 +1646,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			} else
 				mainGame->dInfo.vic_string = gDataManager->GetVictoryString(type).data();
 		}
-		if(type == 0x10 && player < 2 && !mainGame->dInfo.isCatchingUp)
+		if(type == 0x10 && (player < 2 || mainGame->dInfo.br.active) && !mainGame->dInfo.isCatchingUp)
 			mainGame->WaitFrameSignal(mdfx::ExodiaWin(), lock);
 		if(const int frames = mainGame->dInfo.isCatchingUp ? 0 : mdfx::Result(mainGame->showcardcode, mainGame->dInfo.vic_string)) {
 			mainGame->WaitFrameSignal(frames, lock);
@@ -1657,6 +1681,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			mainGame->showcard = 0;
 		}
 		mainGame->dInfo.isStarted = true;
+		mainGame->dInfo.br = DuelInfo::BattleRoyal{};
 		mainGame->dInfo.isFirst = (playertype & 0xf) ? false : true;
 		if(playertype & 0xf0)
 			mainGame->dInfo.player_type = 7;
@@ -2962,7 +2987,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			}
 		}
 		if(!mainGame->dInfo.isCatchingUp) {
-			const bool my_turn = (mainGame->dInfo.turn % 2 && mainGame->dInfo.isFirst) || (!(mainGame->dInfo.turn % 2) && !mainGame->dInfo.isFirst);
+			const bool my_turn = mainGame->dInfo.br.active ? (mainGame->dInfo.br.active_seat == mainGame->dInfo.br.my_seat) : ((mainGame->dInfo.turn % 2 && mainGame->dInfo.isFirst) || (!(mainGame->dInfo.turn % 2) && !mainGame->dInfo.isFirst));
 			if(const int frames = mdfx::PhaseBanner(std::wstring(gDataManager->GetSysString(1700 + 10)), my_turn, true)) {
 				mainGame->WaitFrameSignal(frames, lock);
 				return true;
@@ -3054,7 +3079,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			break;
 		}
 		if(!mainGame->dInfo.isCatchingUp) {
-			const bool my_turn = (mainGame->dInfo.turn % 2 && mainGame->dInfo.isFirst) || (!(mainGame->dInfo.turn % 2) && !mainGame->dInfo.isFirst);
+			const bool my_turn = mainGame->dInfo.br.active ? (mainGame->dInfo.br.active_seat == mainGame->dInfo.br.my_seat) : ((mainGame->dInfo.turn % 2 && mainGame->dInfo.isFirst) || (!(mainGame->dInfo.turn % 2) && !mainGame->dInfo.isFirst));
 			if(const int frames = mdfx::PhaseBanner(std::wstring(gDataManager->GetSysString(1700 + mainGame->showcardcode)), my_turn, false)) {
 				mainGame->WaitFrameSignal(frames, lock);
 				return true;
@@ -4238,6 +4263,184 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		mainGame->dInfo.current_player[player] = (mainGame->dInfo.current_player[player] + 1) % ((player == 0 && mainGame->dInfo.isFirst) ? mainGame->dInfo.team1 : mainGame->dInfo.team2);
 		break;
 	}
+	case MSG_SEAT_INFO: {
+		// Battle Royal (server): our seat (0xff = spectator) and every seat's name
+		if(len < 2)
+			return true;
+		auto lock = LockIf();
+		auto& br = mainGame->dInfo.br;
+		br = DuelInfo::BattleRoyal{};
+		br.active = true;
+		br.my_seat = BufferIO::Read<uint8_t>(pbuf);
+		if(mainGame->dInfo.isReplay || mainGame->dInfo.player_type >= 7)
+			br.my_seat = 0xff;
+		br.count = std::min<uint8_t>(BufferIO::Read<uint8_t>(pbuf), 4);
+		for(uint8_t i = 0; i < br.count && len >= 2u + (i + 1u) * 40u; ++i) {
+			uint16_t raw[20];
+			std::memcpy(raw, pbuf, sizeof(raw));
+			pbuf += sizeof(raw);
+			size_t n = 0;
+			while(n < 20 && raw[n])
+				++n;
+			wchar_t name[41];
+			BufferIO::DecodeUTF16({ raw, n }, name, 41);
+			br.seats[i].name = name;
+			br.seats[i].lp = mainGame->dInfo.startlp;
+		}
+		br.seats[0].slot = 0;
+		br.seats[1].slot = 1;
+		br.alive = br.count;
+		return true;
+	}
+	case MSG_SEAT_SWAP: {
+		// Battle Royal: a seat's whole board entered an engine slot (the server follows with a field reload)
+		if(len < 8)
+			return true;
+		const auto slot = BufferIO::Read<uint8_t>(pbuf) & 1;
+		const auto seat_in = BufferIO::Read<uint8_t>(pbuf);
+		const auto seat_out = BufferIO::Read<uint8_t>(pbuf);
+		const auto count = BufferIO::Read<uint8_t>(pbuf);
+		const auto lp = BufferIO::Read<int32_t>(pbuf);
+		auto lock = LockIf();
+		auto& br = mainGame->dInfo.br;
+		if(!br.active) {
+			br.active = true;
+			br.count = std::min<uint8_t>(count, 4);
+		}
+		auto& field = mainGame->dField;
+		// remember what the leaving seat had (shown in its offstage panel)
+		if(seat_out < 4) {
+			const auto local = mainGame->LocalPlayer(slot);
+			auto& out = br.seats[seat_out];
+			out.slot = 0xff;
+			out.seen = true;
+			out.lp = mainGame->dInfo.lp[local];
+			out.deck = static_cast<uint32_t>(field.deck[local].size());
+			out.hand = static_cast<uint32_t>(field.hand[local].size());
+			out.extra = static_cast<uint32_t>(field.extra[local].size());
+			out.grave = static_cast<uint32_t>(field.grave[local].size());
+			out.removed = static_cast<uint32_t>(field.remove[local].size());
+			out.monsters = 0;
+			out.top_monster.clear();
+			int32_t best = -1;
+			for(auto* pcard : field.mzone[local]) {
+				if(!pcard)
+					continue;
+				++out.monsters;
+				if(pcard->code && (pcard->position & POS_FACEUP) && pcard->attack > best) {
+					best = pcard->attack;
+					out.top_monster = epro::format(L"{} {}", gDataManager->GetName(pcard->code), pcard->attack);
+				}
+			}
+		}
+		if(seat_in < 4) {
+			auto& in = br.seats[seat_in];
+			in.slot = slot;
+			in.lp = lp;
+			in.seen = true;
+			if(len >= 32) {
+				in.deck = BufferIO::Read<uint32_t>(pbuf);
+				in.hand = BufferIO::Read<uint32_t>(pbuf);
+				in.extra = BufferIO::Read<uint32_t>(pbuf);
+				/*extra_p_count = */BufferIO::Read<uint32_t>(pbuf);
+				in.grave = BufferIO::Read<uint32_t>(pbuf);
+				in.removed = BufferIO::Read<uint32_t>(pbuf);
+			}
+			br.slot_seat[slot] = seat_in;
+			// our own seat always plays from the bottom of the screen
+			if(seat_in == br.my_seat && mainGame->LocalPlayer(slot) != 0) {
+				field.ReplaySwap();
+				mainGame->dInfo.isTeam1 = !mainGame->dInfo.isTeam1;
+				mainGame->dInfo.isReplaySwapped = !mainGame->dInfo.isReplaySwapped;
+			}
+		}
+		return true;
+	}
+	case MSG_SEAT_TURN: {
+		// Battle Royal: turn start, who attacks whom, every seat's state
+		if(len < 5)
+			return true;
+		auto lock = LockIf();
+		auto& br = mainGame->dInfo.br;
+		br.active = true;
+		br.turn_slot = BufferIO::Read<uint8_t>(pbuf) & 1;
+		br.active_seat = BufferIO::Read<uint8_t>(pbuf);
+		br.target_seat = BufferIO::Read<uint8_t>(pbuf);
+		const auto count = BufferIO::Read<uint8_t>(pbuf);
+		br.alive = BufferIO::Read<uint8_t>(pbuf);
+		br.count = std::max(br.count, std::min<uint8_t>(count, 4));
+		for(uint8_t i = 0; i < count && len >= 5u + (i + 1u) * 7u; ++i) {
+			const auto slot = BufferIO::Read<uint8_t>(pbuf);
+			const bool alive = BufferIO::Read<uint8_t>(pbuf) != 0;
+			const auto placement = BufferIO::Read<uint8_t>(pbuf);
+			const auto lp = BufferIO::Read<int32_t>(pbuf);
+			if(i >= 4)
+				continue;
+			auto& seat = br.seats[i];
+			seat.slot = slot < 2 ? slot : 0xff;
+			if(slot < 2)
+				br.slot_seat[slot] = i;
+			seat.alive = alive;
+			seat.placement = placement;
+			seat.lp = lp;
+		}
+		// no MSG_SEAT_INFO (old-format replay): seat names from the replay's two teams
+		if(br.count && br.seats[0].name.empty()) {
+			const auto& t0 = mainGame->dInfo.selfnames; // replays: first team (seat 0's) = selfnames
+			const auto& t1 = mainGame->dInfo.opponames;
+			const auto order = BattleRoyalSeatOrder(t0.size(), t1.size());
+			for(size_t i = 0; i < order.size() && i < 4; ++i) {
+				const auto& team = order[i][0] == 0 ? t0 : t1;
+				if(order[i][1] < team.size())
+					br.seats[i].name = team[order[i][1]];
+			}
+		}
+		if(br.active_seat < 4 && br.target_seat < 4) {
+			const auto& a = br.seats[br.active_seat];
+			const auto& t = br.seats[br.target_seat];
+			if(br.active_seat == br.my_seat)
+				br.banner = epro::format(L"Your turn: you attack {}", t.name);
+			else if(br.target_seat == br.my_seat)
+				br.banner = epro::format(L"{} attacks you", a.name);
+			else
+				br.banner = epro::format(L"{} attacks {}", a.name, t.name);
+			br.banner_color = 0xffffe6a0;
+			br.banner_frames = 150;
+			if(!mainGame->dInfo.isCatchingUp)
+				mainGame->AddChatMsg(epro::format(L"Battle Royal, turn {}: {} attacks {} ({} left)", mainGame->dInfo.turn + 1, a.name, t.name, br.alive), 8, 2);
+		}
+		return true;
+	}
+	case MSG_SEAT_ELIMINATED: {
+		// Battle Royal: a seat fell (its board leaves at the next turn start)
+		if(len < 5)
+			return true;
+		const auto seat = BufferIO::Read<uint8_t>(pbuf);
+		/*const auto slot = */BufferIO::Read<uint8_t>(pbuf);
+		const auto reason = BufferIO::Read<uint8_t>(pbuf);
+		const auto placement = BufferIO::Read<uint8_t>(pbuf);
+		const auto left = BufferIO::Read<uint8_t>(pbuf);
+		auto lock = LockIf();
+		auto& br = mainGame->dInfo.br;
+		br.alive = left;
+		if(seat >= 4)
+			return true;
+		auto& s = br.seats[seat];
+		s.alive = false;
+		s.placement = placement;
+		const wchar_t* why = reason == 2 ? L"decked out" : L"0 LP";
+		static constexpr const wchar_t* places[]{ L"", L"1st", L"2nd", L"3rd", L"4th" };
+		const wchar_t* place = placement < 5 ? places[placement] : L"";
+		if(seat == br.my_seat)
+			br.banner = epro::format(L"You are out ({}): {} place", why, place);
+		else
+			br.banner = epro::format(L"{} is out ({}): {} place", s.name, why, place);
+		br.banner_color = 0xffff8070;
+		br.banner_frames = 180;
+		if(!mainGame->dInfo.isCatchingUp)
+			mainGame->AddChatMsg(epro::format(L"Battle Royal: {} is out ({}), {} place, {} left", s.name, why, place, left), 8, 2);
+		return true;
+	}
 	case MSG_RELOAD_FIELD: {
 		auto lock = LockIf();
 		mainGame->dField.Clear();
@@ -4255,7 +4458,10 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		} else {
 			uint32_t opts = BufferIO::Read<uint32_t>(pbuf);
 			mainGame->dInfo.duel_field = mainGame->GetMasterRule(opts);
-			mainGame->dInfo.duel_params = opts;
+			if(mainGame->dInfo.br.active)
+				mainGame->dInfo.duel_params = (mainGame->dInfo.duel_params & ~static_cast<uint64_t>(0xffffffff)) | opts;
+			else
+				mainGame->dInfo.duel_params = opts;
 		}
 		matManager.SetActiveVertices(mainGame->dInfo.HasFieldFlag(DUEL_3_COLUMNS_FIELD),
 									 !mainGame->dInfo.HasFieldFlag(DUEL_SEPARATE_PZONE));
@@ -4316,7 +4522,8 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			push_range(LOCATION_EXTRA);
 			mainGame->dField.extra_p_count[p] = CompatRead<uint8_t, uint32_t>(pbuf);
 		}
-		mainGame->dInfo.startlp = std::max(mainGame->dInfo.lp[0], mainGame->dInfo.lp[1]);
+		if(!mainGame->dInfo.br.active)
+			mainGame->dInfo.startlp = std::max(mainGame->dInfo.lp[0], mainGame->dInfo.lp[1]);
 		mainGame->dField.RefreshAllCards();
 		const auto solving_chains = CompatRead<uint8_t, uint32_t>(pbuf);
 		if(solving_chains > 0) {

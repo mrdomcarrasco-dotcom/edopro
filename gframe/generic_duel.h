@@ -8,6 +8,7 @@
 #include "network.h"
 #include "replay.h"
 #include "deck_manager.h"
+#include "battle_royal.h"
 
 namespace ygo {
 
@@ -129,6 +130,20 @@ protected:
 	}
 	inline void ResendToAll();
 	inline void ResendToAll(DuelPlayer* except);
+	// private copy of a message about engine slot p / the public copy for the other duelists
+	// (the team of p in a normal duel, the duelist whose seat sits in slot p in a Battle Royal)
+	void ResendTeam(uint8_t slot);
+	void ResendOtherTeam(uint8_t slot);
+	// Battle Royal (DUEL_BATTLE_ROYAL)
+	bool battle_royal{ false };
+	bool br_mute_active{ false };
+	BattleRoyalRouter br;
+	std::vector<DuelPlayer*> br_players; // seat -> duelist
+	int BrSeatOf(DuelPlayer* dp) const;
+	bool BrMuted(DuelPlayer* dp) const; // offstage bot: no duel messages
+	uint8_t BrLoserSlot(DuelPlayer* dp) const; // slot reported as losing when dp leaves/surrenders
+	void BrSendSeatInfo();
+	void BrTurnStart(const CoreUtils::Packet& packet);
 	struct {
 		std::vector<duelist> home;
 		std::vector<duelist> opposing;

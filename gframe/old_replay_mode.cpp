@@ -258,6 +258,21 @@ namespace ygo {
 				ReplayRefresh(1, LOCATION_DECK);
 				break;
 			}
+			case MSG_SEAT_TURN: {
+				// Battle Royal: whole boards changed seats at this turn start; rebuild the field like the
+				// server does for live clients (MSG_RELOAD_FIELD from the engine, then fresh card data)
+				uint32_t len = 0;
+				const auto* field = static_cast<const uint8_t*>(OCG_DuelQueryField(pduel, &len));
+				if(!ReplayAnalyze(CoreUtils::Packet(MSG_RELOAD_FIELD, field, len)))
+					return false;
+				ReplayReload();
+				if(!mainGame->dInfo.isCatchingUp)
+					mainGame->gMutex.lock();
+				mainGame->dField.RefreshAllCards();
+				if(!mainGame->dInfo.isCatchingUp)
+					mainGame->gMutex.unlock();
+				break;
+			}
 			case MSG_RELOAD_FIELD: {
 				ReplayReload();
 				if(!mainGame->dInfo.isCatchingUp)

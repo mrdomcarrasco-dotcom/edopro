@@ -554,19 +554,28 @@ void Game::DrawMisc() {
 		driver->drawVertexPrimitiveList(matManager.vChainNum, 4, matManager.iRectangle, 2);
 	}
 	//lp bar
-	const auto& self = dInfo.isTeam1 ? dInfo.selfnames : dInfo.opponames;
-	const auto& oppo = dInfo.isTeam1 ? dInfo.opponames : dInfo.selfnames;
+	// Battle Royal: each side shows the seat that sits in that engine slot right now
+	std::vector<std::wstring> brnames[2];
+	int brcur[2]{ 0, 0 };
+	if(dInfo.br.active) {
+		brnames[0].push_back(dInfo.br.SlotName(LocalPlayer(0)));
+		brnames[1].push_back(dInfo.br.SlotName(LocalPlayer(1)));
+	}
+	const auto& self = dInfo.br.active ? brnames[0] : (dInfo.isTeam1 ? dInfo.selfnames : dInfo.opponames);
+	const auto& oppo = dInfo.br.active ? brnames[1] : (dInfo.isTeam1 ? dInfo.opponames : dInfo.selfnames);
+	const int* curp = dInfo.br.active ? brcur : dInfo.current_player;
 	mdfx::HudInfo hudInfo;
 	hudInfo.lp[0] = dInfo.lp[0];
 	hudInfo.lp[1] = dInfo.lp[1];
 	hudInfo.startlp = dInfo.startlp;
-	if(!self.empty()) hudInfo.name[0] = self[dInfo.current_player[0] < self.size() ? dInfo.current_player[0] : 0];
-	if(!oppo.empty()) hudInfo.name[1] = oppo[dInfo.current_player[1] < oppo.size() ? dInfo.current_player[1] : 0];
-	hudInfo.myTurn = (dInfo.turn % 2 && dInfo.isFirst) || (!(dInfo.turn % 2) && !dInfo.isFirst);
+	if(!self.empty()) hudInfo.name[0] = self[curp[0] < (int)self.size() ? curp[0] : 0];
+	if(!oppo.empty()) hudInfo.name[1] = oppo[curp[1] < (int)oppo.size() ? curp[1] : 0];
+	const bool bottomTurn = dInfo.br.active ? (LocalPlayer(dInfo.br.turn_slot) == 0) : ((dInfo.turn % 2 && dInfo.isFirst) || (!(dInfo.turn % 2) && !dInfo.isFirst));
+	hudInfo.myTurn = bottomTurn;
 	hudInfo.turn = dInfo.turn;
 	const bool customHud = mdfx::DrawHud(hudInfo);
 	if(!customHud) {
-	const auto lpframe_pos = ((dInfo.turn % 2 && dInfo.isFirst) || (!(dInfo.turn % 2) && !dInfo.isFirst)) ?
+	const auto lpframe_pos = bottomTurn ?
 						Resize(327, 8, 630, 51 + static_cast<irr::s32>(23 * (self.size() - 1))) :
 						Resize(689, 8, 991, 51 + static_cast<irr::s32>(23 * (oppo.size() - 1)));
 	driver->draw2DRectangle(skin::DUELFIELD_TURNPLAYER_COLOR_VAL, lpframe_pos);
@@ -633,7 +642,7 @@ void Game::DrawMisc() {
 	{
 		int i = 0;
 		for (const auto& player : self) {
-			if (i++ == dInfo.current_player[0])
+			if (i++ == curp[0])
 				textFont->drawustring(player, p1size, 0xffffffff, false, false, 0);
 			else
 				textFont->drawustring(player, p1size, 0xff808080, false, false, 0);
@@ -645,7 +654,7 @@ void Game::DrawMisc() {
 			const irr::core::ustring utext(player);
 			auto cld = textFont->getDimensionustring(utext);
 			p2size.UpperLeftCorner.X = basecorner - cld.Width;
-			if (i++ == dInfo.current_player[1])
+			if (i++ == curp[1])
 				textFont->drawustring(utext, p2size, 0xffffffff, false, false, 0);
 			else
 				textFont->drawustring(utext, p2size, 0xff808080, false, false, 0);
@@ -684,6 +693,62 @@ void Game::DrawMisc() {
 			DrawStackIndicator(gDataManager->GetNumString(dField.grave[p].size()), matManager.getGrave()[p], (p == 1));
 		if (dField.remove[p].size())
 			DrawStackIndicator(gDataManager->GetNumString(dField.remove[p].size()), matManager.getRemove()[p], (p == 1));
+	}
+	if(dInfo.br.active)
+		DrawBattleRoyal();
+}
+/*
+Battle Royal overlay: one panel per offstage seat (under the opponent's LP plate) and the
+"X attacks Y" / elimination banner across the middle of the field
+*/
+void Game::DrawBattleRoyal() {
+	auto& br = dInfo.br;
+	// offstage panels
+	int row = 0;
+	for(uint8_t i = 0; i < br.count && i < 4; ++i) {
+		const auto& seat = br.seats[i];
+		if(seat.slot < 2)
+			continue;
+		const auto rect = Resize(800, 70 + row * 46, 1018, 112 + row * 46);
+		++row;
+		const irr::video::SColor bg = seat.alive ? irr::video::SColor(200, 16, 18, 26) : irr::video::SColor(170, 40, 12, 12);
+		driver->draw2DRectangle(rect, bg, bg, bg, bg);
+		const irr::video::SColor edge = (i == br.target_seat || i == br.active_seat) ? irr::video::SColor(255, 255, 210, 120) : irr::video::SColor(200, 150, 120, 60);
+		driver->draw2DRectangleOutline(rect, edge);
+		const auto h = rect.getHeight();
+		irr::core::recti line1(rect.UpperLeftCorner.X + ResizeX(6), rect.UpperLeftCorner.Y + ResizeY(2), rect.LowerRightCorner.X - ResizeX(6), rect.UpperLeftCorner.Y + h / 2);
+		irr::core::recti line2(line1.UpperLeftCorner.X, rect.UpperLeftCorner.Y + h / 2, line1.LowerRightCorner.X, rect.LowerRightCorner.Y - ResizeY(2));
+		std::wstring title = seat.name;
+		if(i == br.my_seat)
+			title += L" (you)";
+		std::wstring status;
+		if(!seat.alive) {
+			static constexpr const wchar_t* places[]{ L"", L"1st", L"2nd", L"3rd", L"4th" };
+			status = epro::format(L"OUT - {} place", seat.placement < 5 ? places[seat.placement] : L"");
+		} else {
+			status = epro::format(L"LP {}", std::max(0, seat.lp));
+		}
+		textFont->drawustring(title, line1, seat.alive ? 0xffffffff : 0xffb0a0a0, false, true, &rect);
+		const auto sd = textFont->getDimensionustring(status);
+		irr::core::recti statusRect(line1.LowerRightCorner.X - sd.Width, line1.UpperLeftCorner.Y, line1.LowerRightCorner.X, line1.LowerRightCorner.Y);
+		textFont->drawustring(status, statusRect, seat.alive ? 0xffffe6a0 : 0xffff8070, false, true, &rect);
+		std::wstring detail;
+		if(!seat.seen)
+			detail = L"has not played yet";
+		else
+			detail = epro::format(L"Hand {}  Deck {}  Mon {}{}{}", seat.hand, seat.deck, seat.monsters,
+								  seat.top_monster.empty() ? L"" : L"  ", seat.top_monster);
+		textFont->drawustring(detail, line2, 0xffc8c8c8, false, true, &rect);
+	}
+	// banner
+	if(br.banner_frames > 0 && !br.banner.empty()) {
+		br.banner_frames -= delta_frames;
+		const float a = std::min(1.0f, br.banner_frames / 20.0f);
+		const auto alpha = static_cast<uint32_t>(std::max(0.0f, a) * 255.0f);
+		const auto rect = Resize(330, 236, 1018, 276);
+		const irr::video::SColor bg(static_cast<uint32_t>(alpha * 0.75f), 8, 8, 12);
+		driver->draw2DRectangle(rect, bg, bg, bg, bg);
+		DrawShadowText(lpcFont, br.banner, rect, Resize(0, 2, 2, 0), (alpha << 24) | (br.banner_color & 0xffffff), (alpha << 24), true, true);
 	}
 }
 /*

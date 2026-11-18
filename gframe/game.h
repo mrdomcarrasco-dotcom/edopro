@@ -99,6 +99,29 @@ struct DuelInfo {
 	uint16_t time_left[2];
 	DiscordWrapper::DiscordSecret secret;
 	bool isReplaySwapped;
+	// Battle Royal (DUEL_BATTLE_ROYAL): up to 4 seats share the two engine slots
+	struct BattleRoyal {
+		struct Seat {
+			std::wstring name;
+			int32_t lp = 0;
+			bool alive = true;
+			bool seen = false; // board counts below are known (the seat has been on the field)
+			uint8_t placement = 0;
+			uint8_t slot = 0xff;
+			uint32_t deck = 0, hand = 0, extra = 0, grave = 0, removed = 0, monsters = 0;
+			std::wstring top_monster;
+		};
+		bool active = false;
+		uint8_t my_seat = 0xff; // 0xff: spectator / replay
+		uint8_t count = 0;
+		uint8_t slot_seat[2]{ 0, 1 };
+		uint8_t turn_slot = 0, active_seat = 0, target_seat = 1, alive = 0;
+		Seat seats[4];
+		std::wstring banner;
+		float banner_frames = 0;
+		uint32_t banner_color = 0xffffffff;
+		const std::wstring& SlotName(uint8_t slot) const { return seats[slot_seat[slot & 1] & 3].name; }
+	} br;
 	bool HasFieldFlag(uint64_t flag) const {
 		return (flag & duel_params) == flag;
 	}
@@ -204,6 +227,7 @@ struct host_creation_panel_elements {
 	irr::gui::IGUIWindow* wCreateHost;
 	irr::gui::IGUIComboBox* cbHostLFList;
 	irr::gui::IGUIButton* btnRelayMode;
+	irr::gui::IGUICheckBox* chkBattleRoyal;
 	irr::gui::IGUIComboBox* cbMatchMode;
 	irr::gui::IGUIComboBox* cbRule;
 	irr::gui::IGUIEditBox* ebTimeLimit;
@@ -529,6 +553,7 @@ public:
 	void DrawCards();
 	void DrawCard(ClientCard* pcard);
 	void DrawMisc();
+	void DrawBattleRoyal();
 	void DrawStatus(ClientCard* pcard);
 	void DrawPendScale(ClientCard* pcard);
 	void DrawStackIndicator(epro::wstringview text, const Materials::QuadVertex v, bool opponent);

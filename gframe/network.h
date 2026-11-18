@@ -214,11 +214,13 @@ struct DuelPlayer {
 	uint8_t type;
 	uint8_t state;
 	bufferevent* bev;
+	bool br_client; // sent CTOS_BR_CLIENT: an EDOPRO client that can follow a Battle Royal while offstage
 	DuelPlayer() {
 		game = 0;
 		type = 0;
 		state = 0;
 		bev = 0;
+		br_client = false;
 	}
 };
 
@@ -290,6 +292,9 @@ public:
 #define CTOS_HS_START		0x25
 
 #define CTOS_REMATCH_RESPONSE 0xf0
+// Battle Royal (fork extension): "this client understands MSG_SEAT_*"; sent once after joining a
+// Battle Royal room. Clients that never send it (WindBot) get no duel messages while offstage.
+#define CTOS_BR_CLIENT		0x31
 
 #define STOC_GAME_MSG		0x1
 #define STOC_ERROR_MSG		0x2

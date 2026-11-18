@@ -1,6 +1,8 @@
 name: Build EDOPro Genesys
 # Progression Series fork: EDOPro 41.0.2 + Genesys points in the deck editor.
 # Builds only the Windows (x86, like the official client) and macOS (universal) binaries and uploads them as artifacts.
+# Also builds the engine (ocgcore submodule = mrdomcarrasco-dotcom/ygopro-core, Battle Royal branch) as a macOS
+# universal libocgcore.dylib (artifact libocgcore-macos-universal), the same way upstream ygopro-core's CI does.
 on: [push, workflow_dispatch]
 env:
   # dependency caches as of the 41.0.2 release (April 2025)
@@ -132,3 +134,70 @@ jobs:
       with:
         name: macos-universal
         path: out/EDOPro
+
+  Core-mac-cctools:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ["x86_64", "aarch64"]
+    runs-on: ubuntu-24.04
+    env:
+      TRAVIS_OS_NAME: linux
+      TARGET_OS: macosx
+      BUILD_CONFIG: release
+      CC: ${{ format('/opt/cctools/bin/{0}-apple-darwin21.4-clang', matrix.arch) }}
+      CXX: ${{ format('/opt/cctools/bin/{0}-apple-darwin21.4-clang++-gstdc++', matrix.arch) }}
+      AR: ${{ format('/opt/cctools/bin/{0}-apple-darwin21.4-ar', matrix.arch) }}
+      RANLIB: ${{ format('/opt/cctools/bin/{0}-apple-darwin21.4-ranlib', matrix.arch) }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+        submodules: recursive
+    - name: Download cctools
+      run: |
+        cd /opt
+        wget -q https://github.com/edo9300/cctools-build/releases/download/osxcross/cctools.tar.xz
+        tar xf cctools.tar.xz
+        echo "PATH=/opt/cctools/bin:/opt/cctools/clang/bin:$PATH" >> $GITHUB_ENV
+    - name: Install premake
+      shell: bash
+      working-directory: ocgcore
+      run: ./scripts/install-premake5.sh
+    - name: Build
+      shell: bash
+      working-directory: ocgcore
+      run: ./scripts/build-premake5.sh
+    - name: Check exports
+      shell: bash
+      working-directory: ocgcore
+      run: |
+        ls -la bin/release/
+        file bin/release/libocgcore.dylib || true
+    - uses: actions/upload-artifact@v4
+      with:
+        name: ${{ format('core-osx-{0}', matrix.arch) }}
+        path: ocgcore/bin/release/libocgcore.dylib
+
+  Core-mac-universal:
+    runs-on: ubuntu-latest
+    needs: [ Core-mac-cctools ]
+    steps:
+    - name: Download lipo binary
+      run: |
+        wget -q https://github.com/edo9300/cctools-build/releases/download/preview/lipo
+        chmod +x lipo
+    - name: Download core artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: core-osx-*
+    - name: Merge binaries
+      shell: bash
+      run: |
+        mkdir -p out
+        ./lipo -create -output out/libocgcore.dylib ./core-osx-aarch64/libocgcore.dylib ./core-osx-x86_64/libocgcore.dylib
+        ./lipo -info out/libocgcore.dylib
+    - uses: actions/upload-artifact@v4
+      with:
+        name: libocgcore-macos-universal
+        path: out/libocgcore.dylib

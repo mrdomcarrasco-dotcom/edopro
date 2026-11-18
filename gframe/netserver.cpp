@@ -303,7 +303,7 @@ void NetServer::HandleCTOSPacket(DuelPlayer* dp, uint8_t* data, uint32_t len) {
 	static constexpr ClientVersion serverversion{ EXPAND_VERSION(CLIENT_VERSION) };
 	auto* pdata = data;
 	uint8_t pktType = BufferIO::Read<uint8_t>(pdata);
-	if((pktType != CTOS_SURRENDER) && (pktType != CTOS_CHAT) && (dp->state == 0xff || (dp->state && dp->state != pktType)))
+	if((pktType != CTOS_SURRENDER) && (pktType != CTOS_CHAT) && (pktType != CTOS_BR_CLIENT) && (dp->state == 0xff || (dp->state && dp->state != pktType)))
 		return;
 	switch(pktType) {
 	case CTOS_RESPONSE: {
@@ -360,6 +360,17 @@ void NetServer::HandleCTOSPacket(DuelPlayer* dp, uint8_t* data, uint32_t len) {
 		}
 		pkt.info.team1 = std::max(1, std::min(pkt.info.team1, 3));
 		pkt.info.team2 = std::max(1, std::min(pkt.info.team2, 3));
+		if(pkt.info.duel_flag_high & (DUEL_BATTLE_ROYAL >> 32)) {
+			// Battle Royal: 3 or 4 seats (2+1, 1+2 or 2+2 lobby slots), one duel, no relay
+			pkt.info.team1 = std::min(pkt.info.team1, 2);
+			pkt.info.team2 = std::min(pkt.info.team2, 2);
+			if(pkt.info.team1 + pkt.info.team2 < 3) {
+				pkt.info.duel_flag_high &= ~static_cast<uint32_t>(DUEL_BATTLE_ROYAL >> 32);
+			} else {
+				pkt.info.duel_flag_low &= ~static_cast<uint32_t>(DUEL_RELAY);
+				pkt.info.best_of = 1;
+			}
+		}
 		duel_mode = new GenericDuel(pkt.info.team1, pkt.info.team2, !!(pkt.info.duel_flag_low & DUEL_RELAY), pkt.info.best_of);
 		duel_mode->etimer = event_new(net_evbase, 0, EV_TIMEOUT | EV_PERSIST, GenericDuel::GenericTimer, duel_mode);
 		timeval timeout = { 1, 0 };
@@ -429,6 +440,10 @@ void NetServer::HandleCTOSPacket(DuelPlayer* dp, uint8_t* data, uint32_t len) {
 		if(!duel_mode || duel_mode->pduel)
 			break;
 		duel_mode->StartDuel(dp);
+		break;
+	}
+	case CTOS_BR_CLIENT: {
+		dp->br_client = true;
 		break;
 	}
 	case CTOS_REMATCH_RESPONSE:	{

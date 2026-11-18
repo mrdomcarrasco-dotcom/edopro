@@ -1,3 +1,4 @@
 [submodule "ocgcore"]
 	path = ocgcore
-	url = https://github.com/edo9300/ygopro-core.git
+	url = https://github.com/mrdomcarrasco-dotcom/ygopro-core.git
+	branch = battle-royal

@@ -1254,7 +1254,10 @@ void Game::PopulateGameHostWindows() {
 		defaultStrings.emplace_back(chkNoCheckDeckSize, 12113);
 		menuHandler.MakeElementSynchronized(chkNoCheckDeckSize);
 
-		defaultStrings.emplace_back(env->addStaticText(gDataManager->GetSysString(1231).data(), Scale(20, 250, 320, 270), false, false, tDuelSettings), 1231);
+		defaultStrings.emplace_back(env->addStaticText(gDataManager->GetSysString(1231).data(), Scale(20, 250, 135, 270), false, false, tDuelSettings), 1231);
+		// Battle Royal: 3-4 player free-for-all (2+1 or 2+2 slots of the team counts above), system.conf battleRoyal
+		chkBattleRoyal = env->addCheckBox(gGameConfig->battleRoyal, Scale(230, 247, 370, 268), tDuelSettings, -1, L"Battle Royal");
+		chkBattleRoyal->setToolTipText(L"Free-for-all for 3 or 4 duelists (team counts 2+1 or 2+2): everyone has their own field and LP, last one standing wins.");
 		ebStartLP = env->addEditBox(WStr(gGameConfig->startLP), Scale(140, 245, 220, 270), true, tDuelSettings, EDITBOX_NUMERIC);
 		ebStartLP->setTextAlignment(irr::gui::EGUIA_CENTER, irr::gui::EGUIA_CENTER);
 		defaultStrings.emplace_back(env->addStaticText(gDataManager->GetSysString(1232).data(), Scale(20, 280, 320, 300), false, false, tDuelSettings), 1232);
@@ -2634,6 +2637,7 @@ void Game::SaveConfig() {
 	TrySaveInt(gGameConfig->antialias, gSettings.ebAntiAlias);
 	gGameConfig->showConsole = gSettings.chkShowConsole->isChecked();
 	gGameConfig->relayDuel = btnRelayMode->isPressed();
+	gGameConfig->battleRoyal = chkBattleRoyal->isChecked();
 	gGameConfig->noCheckDeckContent = chkNoCheckDeckContent->isChecked();
 	gGameConfig->noCheckDeckSize = chkNoCheckDeckSize->isChecked();
 	gGameConfig->noShuffleDeck = chkNoShuffleDeck->isChecked();

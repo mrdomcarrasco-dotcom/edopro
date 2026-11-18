@@ -317,6 +317,7 @@
 #define MSG_SEAT_SWAP            166 // battle royal, see ocgcore field::seat_swap
 #define MSG_SEAT_TURN            167
 #define MSG_SEAT_ELIMINATED      168
+#define MSG_SEAT_INFO            169 // battle royal, made by the server: your seat + every seat's name
 #define MSG_MATCH_KILL           170
 #define MSG_CUSTOM_MSG           180
 #define MSG_REMOVE_CARDS         190
