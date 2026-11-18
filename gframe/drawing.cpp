@@ -558,8 +558,10 @@ void Game::DrawMisc() {
 	std::vector<std::wstring> brnames[2];
 	int brcur[2]{ 0, 0 };
 	if(dInfo.br.active) {
-		brnames[0].push_back(dInfo.br.SlotName(LocalPlayer(0)));
-		brnames[1].push_back(dInfo.br.SlotName(LocalPlayer(1)));
+		for(int i = 0; i < 2; ++i) {
+			const auto seat = dInfo.br.slot_seat[LocalPlayer(i) & 1] & 3;
+			brnames[i].push_back(dInfo.br.teams ? epro::format(L"{} [{}]", dInfo.br.seats[seat].name, dInfo.br.seats[seat].team == 0 ? L"A" : L"B") : dInfo.br.seats[seat].name);
+		}
 	}
 	const auto& self = dInfo.br.active ? brnames[0] : (dInfo.isTeam1 ? dInfo.selfnames : dInfo.opponames);
 	const auto& oppo = dInfo.br.active ? brnames[1] : (dInfo.isTeam1 ? dInfo.opponames : dInfo.selfnames);
@@ -719,6 +721,8 @@ void Game::DrawBattleRoyal() {
 		irr::core::recti line1(rect.UpperLeftCorner.X + ResizeX(6), rect.UpperLeftCorner.Y + ResizeY(2), rect.LowerRightCorner.X - ResizeX(6), rect.UpperLeftCorner.Y + h / 2);
 		irr::core::recti line2(line1.UpperLeftCorner.X, rect.UpperLeftCorner.Y + h / 2, line1.LowerRightCorner.X, rect.LowerRightCorner.Y - ResizeY(2));
 		std::wstring title = seat.name;
+		if(br.teams)
+			title += epro::format(L" [{}]", DuelInfo::BattleRoyal::TeamTag(seat.team));
 		if(i == br.my_seat)
 			title += L" (you)";
 		std::wstring status;

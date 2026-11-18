@@ -91,6 +91,9 @@ void GenericDuel::BrSendSeatInfo() {
 		const auto* name = reinterpret_cast<const uint8_t*>(dp->name);
 		buf.insert(buf.end(), name, name + sizeof(dp->name));
 	}
+	// team battle royal: u8 teams on/off, then each seat's team (its lobby side)
+	buf.push_back((host_info.duel_flag_high & (DUEL_BATTLE_ROYAL_TEAMS >> 32)) ? 1 : 0);
+	buf.insert(buf.end(), br_team.begin(), br_team.end());
 	for(size_t seat = 0; seat < br_players.size(); ++seat) {
 		buf[1] = static_cast<uint8_t>(seat);
 		NetServer::SendBufferToPlayer(br_players[seat], STOC_GAME_MSG, buf);
@@ -695,6 +698,7 @@ void GenericDuel::TPResult(DuelPlayer* dp, uint8_t tp) {
 	cur_player[1] = players.opposing_iterator->player;
 	br_mute_active = false;
 	br_players.clear();
+	br_team.clear();
 	if(battle_royal) {
 		// seats in core order (ocgcore field::battle_royal_init): team 0 duelist 0, team 1 duelist 0, ...
 		std::vector<bool> is_bot;
@@ -702,6 +706,7 @@ void GenericDuel::TPResult(DuelPlayer* dp, uint8_t tp) {
 		for(const auto& td : BattleRoyalSeatOrder(players.home.size(), players.opposing.size())) {
 			auto* dp = (td[0] == 0 ? players.home : players.opposing)[td[1]].player;
 			br_players.push_back(dp);
+			br_team.push_back(td[0]);
 			is_bot.push_back(!dp->br_client);
 			views.push_back(td[0]); // the MSG_START type below: 0 for the first team, 1 for the second
 		}

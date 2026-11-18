@@ -261,6 +261,8 @@ catch(...) { what = def; }
 			if(mainGame->chkBattleRoyal->isChecked()) {
 				// Battle Royal: 3 or 4 seats; a 1v1 room becomes 4 players
 				cscg.info.duel_flag_high |= static_cast<uint32_t>(DUEL_BATTLE_ROYAL >> 32);
+				if(mainGame->chkBattleRoyalTeams->isChecked())
+					cscg.info.duel_flag_high |= static_cast<uint32_t>(DUEL_BATTLE_ROYAL_TEAMS >> 32);
 				cscg.info.duel_flag_low &= ~static_cast<uint32_t>(DUEL_RELAY);
 				cscg.info.team1 = std::min(cscg.info.team1, 2);
 				cscg.info.team2 = std::min(cscg.info.team2, 2);
@@ -736,7 +738,8 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 		mainGame->dInfo.isRelay = params & DUEL_RELAY;
 		params &= ~DUEL_RELAY;
 		const bool battle_royal_room = (params & DUEL_BATTLE_ROYAL) != 0;
-		params &= ~DUEL_BATTLE_ROYAL;
+		const bool battle_royal_teams = battle_royal_room && (params & DUEL_BATTLE_ROYAL_TEAMS) != 0;
+		params &= ~(DUEL_BATTLE_ROYAL | DUEL_BATTLE_ROYAL_TEAMS);
 		if(battle_royal_room) // this client follows the duel while its seat is offstage (MSG_SEAT_*)
 			SendPacketToServer(CTOS_BR_CLIENT);
 		pkt.info.no_shuffle_deck = (pkt.info.no_shuffle_deck != 0) || ((params & DUEL_PSEUDO_SHUFFLE) != 0);
@@ -751,7 +754,8 @@ void DuelClient::HandleSTOCPacketLanAsync(const std::vector<uint8_t>& data) {
 			str.append(epro::format(L"{}{}\n", gDataManager->GetSysString(1227), gDataManager->GetSysString(1244 + pkt.info.mode)));
 		else {
 			if(battle_royal_room)
-				str.append(epro::format(L"{}Battle Royal ({} players, free-for-all)\n", gDataManager->GetSysString(1227), pkt.info.team1 + pkt.info.team2));
+				str.append(epro::format(L"{}{} ({} players, {})\n", gDataManager->GetSysString(1227), battle_royal_teams ? L"Team Battle Royal" : L"Battle Royal",
+										pkt.info.team1 + pkt.info.team2, battle_royal_teams ? L"each side is a team" : L"free-for-all"));
 			else
 				str.append(epro::format(L"{}{} {}{}\n", gDataManager->GetSysString(1227), gDataManager->GetSysString(1381), mainGame->dInfo.best_of, mainGame->dInfo.isRelay ? L" Relay" : L""));
 		}
@@ -1628,9 +1632,13 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		std::wstring formatted_string = L"";
 		if(player < 2 && mainGame->dInfo.br.active) {
 			const auto& br = mainGame->dInfo.br;
-			const auto seat = br.slot_seat[player];
-			mainGame->showcardcode = (br.my_seat == 0xff || seat == br.my_seat) ? 1 : 2;
-			mainGame->dInfo.vic_string = epro::format(L"{} wins the Battle Royal", seat < 4 ? br.seats[seat].name : L"?");
+			const auto seat = br.slot_seat[player] & 3;
+			const bool won = br.teams ? (br.my_seat < 4 && br.seats[br.my_seat].team == br.seats[seat].team) : (seat == br.my_seat);
+			mainGame->showcardcode = (br.my_seat == 0xff || won) ? 1 : 2;
+			if(br.teams)
+				mainGame->dInfo.vic_string = epro::format(L"{} ({}) wins the Battle Royal", DuelInfo::BattleRoyal::TeamTag(br.seats[seat].team), br.TeamNames(br.seats[seat].team));
+			else
+				mainGame->dInfo.vic_string = epro::format(L"{} wins the Battle Royal", br.seats[seat].name);
 			player = 2; // no further name lookups below
 		} else if(player < 2) {
 			player = mainGame->LocalPlayer(player);
@@ -4286,6 +4294,12 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			BufferIO::DecodeUTF16({ raw, n }, name, 41);
 			br.seats[i].name = name;
 			br.seats[i].lp = mainGame->dInfo.startlp;
+		}
+		// team battle royal info after the names: u8 teams, then a team per seat
+		if(len >= 3u + br.count * 40u) {
+			br.teams = BufferIO::Read<uint8_t>(pbuf) != 0;
+			for(uint8_t i = 0; i < br.count && len >= 4u + br.count * 40u + i; ++i)
+				br.seats[i].team = BufferIO::Read<uint8_t>(pbuf);
 		}
 		br.seats[0].slot = 0;
 		br.seats[1].slot = 1;

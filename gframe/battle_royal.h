@@ -29,7 +29,7 @@ namespace ygo {
 #endif
 #ifndef MSG_SEAT_INFO
 // server-made (not from the core): u8 your seat (0xff = spectator/replay), u8 seat count,
-// then per seat: u16 name[20]
+// then per seat: u16 name[20]; then u8 team battle royal (0/1) and per seat u8 team (lobby side)
 #define MSG_SEAT_INFO            169
 #endif
 

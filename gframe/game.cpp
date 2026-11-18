@@ -1258,9 +1258,11 @@ void Game::PopulateGameHostWindows() {
 		// Battle Royal: 3-4 player free-for-all (2+1 or 2+2 slots of the team counts above), system.conf battleRoyal
 		chkBattleRoyal = env->addCheckBox(gGameConfig->battleRoyal, Scale(230, 247, 370, 268), tDuelSettings, -1, L"Battle Royal");
 		chkBattleRoyal->setToolTipText(L"Free-for-all for 3 or 4 duelists (team counts 2+1 or 2+2): everyone has their own field and LP, last one standing wins.");
+		chkBattleRoyalTeams = env->addCheckBox(gGameConfig->battleRoyalTeams, Scale(230, 277, 370, 298), tDuelSettings, -1, L"BR: sides are teams");
+		chkBattleRoyalTeams->setToolTipText(L"Team Battle Royal: every duelist keeps their own field and LP, but the two lobby sides are teams (e.g. Yugi + Kaiba vs Dartz). Nobody attacks a teammate; the last team standing wins.");
 		ebStartLP = env->addEditBox(WStr(gGameConfig->startLP), Scale(140, 245, 220, 270), true, tDuelSettings, EDITBOX_NUMERIC);
 		ebStartLP->setTextAlignment(irr::gui::EGUIA_CENTER, irr::gui::EGUIA_CENTER);
-		defaultStrings.emplace_back(env->addStaticText(gDataManager->GetSysString(1232).data(), Scale(20, 280, 320, 300), false, false, tDuelSettings), 1232);
+		defaultStrings.emplace_back(env->addStaticText(gDataManager->GetSysString(1232).data(), Scale(20, 280, 135, 300), false, false, tDuelSettings), 1232);
 		ebStartHand = env->addEditBox(WStr(gGameConfig->startHand), Scale(140, 275, 220, 300), true, tDuelSettings, EDITBOX_NUMERIC);
 		ebStartHand->setTextAlignment(irr::gui::EGUIA_CENTER, irr::gui::EGUIA_CENTER);
 		defaultStrings.emplace_back(env->addStaticText(gDataManager->GetSysString(1233).data(), Scale(20, 310, 320, 330), false, false, tDuelSettings), 1233);
@@ -2638,6 +2640,7 @@ void Game::SaveConfig() {
 	gGameConfig->showConsole = gSettings.chkShowConsole->isChecked();
 	gGameConfig->relayDuel = btnRelayMode->isPressed();
 	gGameConfig->battleRoyal = chkBattleRoyal->isChecked();
+	gGameConfig->battleRoyalTeams = chkBattleRoyalTeams->isChecked();
 	gGameConfig->noCheckDeckContent = chkNoCheckDeckContent->isChecked();
 	gGameConfig->noCheckDeckSize = chkNoCheckDeckSize->isChecked();
 	gGameConfig->noShuffleDeck = chkNoShuffleDeck->isChecked();

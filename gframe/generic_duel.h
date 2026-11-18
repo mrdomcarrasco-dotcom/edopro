@@ -139,6 +139,7 @@ protected:
 	bool br_mute_active{ false };
 	BattleRoyalRouter br;
 	std::vector<DuelPlayer*> br_players; // seat -> duelist
+	std::vector<uint8_t> br_team; // seat -> lobby side (0 = first team); a team only with DUEL_BATTLE_ROYAL_TEAMS
 	int BrSeatOf(DuelPlayer* dp) const;
 	bool BrMuted(DuelPlayer* dp) const; // offstage bot: no duel messages
 	uint8_t BrLoserSlot(DuelPlayer* dp) const; // slot reported as losing when dp leaves/surrenders

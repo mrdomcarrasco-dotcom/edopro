@@ -108,10 +108,12 @@ struct DuelInfo {
 			bool seen = false; // board counts below are known (the seat has been on the field)
 			uint8_t placement = 0;
 			uint8_t slot = 0xff;
+			uint8_t team = 0; // lobby side (only meaningful when teams)
 			uint32_t deck = 0, hand = 0, extra = 0, grave = 0, removed = 0, monsters = 0;
 			std::wstring top_monster;
 		};
 		bool active = false;
+		bool teams = false; // team battle royal (DUEL_BATTLE_ROYAL_TEAMS)
 		uint8_t my_seat = 0xff; // 0xff: spectator / replay
 		uint8_t count = 0;
 		uint8_t slot_seat[2]{ 0, 1 };
@@ -121,6 +123,19 @@ struct DuelInfo {
 		float banner_frames = 0;
 		uint32_t banner_color = 0xffffffff;
 		const std::wstring& SlotName(uint8_t slot) const { return seats[slot_seat[slot & 1] & 3].name; }
+		static const wchar_t* TeamTag(uint8_t team) { return team == 0 ? L"Team A" : L"Team B"; }
+		// "Team A: Yugi & Kaiba"
+		std::wstring TeamNames(uint8_t team) const {
+			std::wstring out;
+			for(uint8_t i = 0; i < count && i < 4; ++i) {
+				if(seats[i].team != team)
+					continue;
+				if(!out.empty())
+					out += L" & ";
+				out += seats[i].name;
+			}
+			return out;
+		}
 	} br;
 	bool HasFieldFlag(uint64_t flag) const {
 		return (flag & duel_params) == flag;
@@ -228,6 +243,7 @@ struct host_creation_panel_elements {
 	irr::gui::IGUIComboBox* cbHostLFList;
 	irr::gui::IGUIButton* btnRelayMode;
 	irr::gui::IGUICheckBox* chkBattleRoyal;
+	irr::gui::IGUICheckBox* chkBattleRoyalTeams;
 	irr::gui::IGUIComboBox* cbMatchMode;
 	irr::gui::IGUIComboBox* cbRule;
 	irr::gui::IGUIEditBox* ebTimeLimit;
