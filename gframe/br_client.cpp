@@ -44,6 +44,7 @@ bool view_dirty = false;               // a new board for the viewed seat arrive
 bool animate_top = false;              // the live top half changed (gMutex)
 uint8_t last_top = NONE;               // seat in the top half at the last field reload
 uint32_t hint_until = 0;               // our turn started: pulse the seats we can attack until then
+int last_idle_turn = -1;               // turn of our last idle prompt (gMutex)
 
 // HUD input state (main thread)
 mdfx::SeatHudRects rects;
@@ -289,7 +290,11 @@ void OnPrompt(uint8_t msg) {
 	}
 }
 
-void OnIdle(bool my_turn_start) {
+void OnIdle(bool my_turn) {
+	// only the first idle of each of our turns (reset with the duel)
+	const bool my_turn_start = my_turn && last_idle_turn != mainGame->dInfo.turn;
+	if(my_turn_start)
+		last_idle_turn = mainGame->dInfo.turn;
 	if(my_turn_start && BR().active && !mainGame->dInfo.isCatchingUp) {
 		hint_until = Now() + 3500;
 		const auto& br = BR();
@@ -336,6 +341,7 @@ void Reset() {
 	animate_top = view_dirty = false;
 	force_live = false;
 	hint_until = 0;
+	last_idle_turn = -1;
 	chip_seat.clear();
 	rects = {};
 }

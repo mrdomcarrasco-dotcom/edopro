@@ -17,7 +17,7 @@ namespace brc {
 // --- duel thread (gMutex held) ---
 void OnBoard(const uint8_t* p, size_t len);  // MSG_SEAT_BOARD body (after the message id)
 void OnPrompt(uint8_t msg);                    // a prompt arrived: field-picking prompts need the live board
-void OnIdle(bool my_turn_start);               // MSG_SELECT_IDLECMD / BATTLECMD for us
+void OnIdle(bool my_turn);                     // MSG_SELECT_IDLECMD while it is our turn
 void OnReloadField();                          // MSG_RELOAD_FIELD rebuilt the field
 void Reset();                                  // duel start / end
 

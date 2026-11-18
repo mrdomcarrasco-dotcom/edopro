@@ -1827,12 +1827,8 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		/*uint8_t selecting_player = */BufferIO::Read<uint8_t>(pbuf);
 		if(mainGame->dInfo.br.active) {
 			// Battle Royal: the first idle of our turn shows whom we can attack
-			static int last_idle_turn = -1;
-			const bool start = mainGame->dInfo.br.active_seat == mainGame->dInfo.br.my_seat && last_idle_turn != mainGame->dInfo.turn;
-			if(start)
-				last_idle_turn = mainGame->dInfo.turn;
 			std::lock_guard<epro::mutex> brlock(mainGame->gMutex);
-			brc::OnIdle(start);
+			brc::OnIdle(mainGame->dInfo.br.active_seat == mainGame->dInfo.br.my_seat);
 		}
 		uint32_t code, count, seq;
 		uint8_t con, loc;
