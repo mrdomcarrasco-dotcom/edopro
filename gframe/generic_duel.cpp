@@ -1,5 +1,6 @@
 #include <algorithm>
 #include "generic_duel.h"
+#include "br_board.h"
 #include "netserver.h"
 #include "game.h"
 #include "core_utils.h"
@@ -175,44 +176,8 @@ void GenericDuel::BrReloadField() {
 	}
 }
 
-// MSG_SEAT_BOARD (core packet) -> the seat's own copy and the public copy, each with the message id.
-// Every block's query is re-encoded the way RefreshLocation does it (owner: hidden-checked, others: public).
 bool GenericDuel::BrBoardBuffers(const CoreUtils::Packet& packet, std::vector<uint8_t>& full, std::vector<uint8_t>& pub) {
-	const auto* p = packet.data();
-	const size_t len = packet.buff_size();
-	static constexpr size_t header = 1 + 1 + 1 + 4 + 6 * 4; // seat, alive, placement, lp, 6 counts
-	if(len < header + 1)
-		return false;
-	full.assign({ static_cast<uint8_t>(MSG_SEAT_BOARD) });
-	full.insert(full.end(), p, p + header + 1);
-	pub = full;
-	const uint8_t blocks = p[header];
-	size_t pos = header + 1;
-	for(uint8_t b = 0; b < blocks; ++b) {
-		if(pos + 5 > len)
-			return false;
-		const uint8_t loc = p[pos];
-		uint32_t blen;
-		std::memcpy(&blen, p + pos + 1, sizeof(blen));
-		pos += 5;
-		if(pos + blen > len || blen < 4)
-			return false;
-		std::vector<uint8_t> raw(p + pos, p + pos + blen);
-		pos += blen;
-		CoreUtils::QueryStream query(raw.data());
-		for(auto* out : { &full, &pub }) {
-			out->push_back(loc);
-			const auto at = out->size();
-			out->resize(at + sizeof(uint32_t));
-			if(out == &full)
-				query.GenerateBuffer(*out, true);
-			else
-				query.GeneratePublicBuffer(*out);
-			const uint32_t written = static_cast<uint32_t>(out->size() - at - sizeof(uint32_t));
-			std::memcpy(out->data() + at, &written, sizeof(written));
-		}
-	}
-	return true;
+	return BattleRoyalBoardBuffers(packet.data(), packet.buff_size(), full, pub);
 }
 
 void GenericDuel::Chat(DuelPlayer* dp, void* pdata, int len) {

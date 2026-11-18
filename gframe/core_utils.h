@@ -59,6 +59,8 @@ public:
 	Query(Token, const uint8_t*& buff, bool legacy_race_size) { Parse(buff, legacy_race_size); };
 	// read-only views (Battle Royal board snapshots build their own cards from a query)
 	bool IsEmpty() const { return onfield_skipped; }
+	uint32_t Flags() const { return onfield_skipped ? 0 : flag; }
+	uint32_t Code() const { return code; }
 	size_t OverlayCount() const { return (flag & 0x10000) ? overlay_cards.size() : 0; }
 private:
 	void Parse(const uint8_t*& buff, bool legacy_race_size);
