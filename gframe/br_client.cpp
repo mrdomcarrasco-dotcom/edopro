@@ -292,9 +292,10 @@ void OnPrompt(uint8_t msg) {
 void OnIdle(bool my_turn_start) {
 	if(my_turn_start && BR().active && !mainGame->dInfo.isCatchingUp) {
 		hint_until = Now() + 3500;
-		uint8_t n = 0;
-		for(uint8_t s = 0; s < BR().count; ++s)
-			n += CanTarget(s);
+		const auto& br = BR();
+		uint8_t n = 0; // other opponents we could switch to
+		for(uint8_t s = 0; s < br.count && s < 4 && br.my_seat < 4; ++s)
+			n += s != br.my_seat && s != br.target_seat && br.seats[s].alive && !(br.teams && br.seats[s].team == br.seats[br.my_seat].team);
 		if(n)
 			mdfx::SeatToast(epro::format(L"Your turn · attacking {} · pick another opponent above to switch", SeatName(BR().target_seat)), 0);
 	}
@@ -315,6 +316,16 @@ void Reset() {
 		Swap();
 	ClearViewLists();
 	view.seat = NONE;
+	// nothing may keep pointing at a view card once they are freed
+	auto& d = mainGame->dField;
+	const std::set<ClientCard*> mine(pool.begin(), pool.end());
+	if(mine.count(d.hovered_card)) d.hovered_card = nullptr;
+	if(mine.count(d.clicked_card)) d.clicked_card = nullptr;
+	if(std::any_of(d.display_cards.begin(), d.display_cards.end(), [&](ClientCard* c) { return mine.count(c) != 0; })) {
+		d.display_cards.clear();
+		if(mainGame->wCardDisplay)
+			mainGame->wCardDisplay->setVisible(false);
+	}
 	for(auto* c : pool)
 		delete c;
 	pool.clear();
