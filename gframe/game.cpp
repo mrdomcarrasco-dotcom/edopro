@@ -208,7 +208,7 @@ void Game::Initialize() {
 		{
 			auto font = gGameConfig->textfont;
 			font.size = (uint8_t)Scale(12);
-			fonts.small = irr::gui::CGUITTFont::createTTFont(env, font, fallbackFonts);
+			fonts.plain = irr::gui::CGUITTFont::createTTFont(env, font, fallbackFonts);
 		}
 		mdfx::Init(driver, fonts);
 	}

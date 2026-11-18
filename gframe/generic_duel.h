@@ -147,6 +147,8 @@ protected:
 	void BrTurnStart(const CoreUtils::Packet& packet);
 	bool BrBoardBuffers(const CoreUtils::Packet& packet, std::vector<uint8_t>& full, std::vector<uint8_t>& pub);
 	std::vector<std::vector<uint8_t>> br_board_cache; // seat -> its last public MSG_SEAT_BOARD (with the id)
+	std::vector<std::vector<uint8_t>> br_seat_info; // seat -> the MSG_SEAT_INFO it got (resent to bots)
+	void BrReloadField();
 	struct {
 		std::vector<duelist> home;
 		std::vector<duelist> opposing;

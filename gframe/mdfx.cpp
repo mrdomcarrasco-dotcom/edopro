@@ -1504,7 +1504,7 @@ bool DrawSeatHud(const SeatHud& in, SeatHudRects& out) {
 	const float ch = 54.f * sy, cy0 = 6.f * sy;
 	auto* nameF = F.name ? F.name : F.statline;
 	auto* tagF = F.tag ? F.tag : nameF;
-	auto* smallF = F.small ? F.small : nameF;
+	auto* smallF = F.plain ? F.plain : nameF;
 	for(size_t i = 0; i < n; ++i) {
 		const auto& c = in.chips[i];
 		const float x0 = rx1 - (n - i) * cw - (n - 1 - i) * gap;

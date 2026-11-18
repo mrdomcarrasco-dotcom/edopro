@@ -28,7 +28,7 @@ struct Fonts {
 	irr::gui::CGUITTFont* lp = nullptr;    // HUD life points (number font, ~34 px)
 	irr::gui::CGUITTFont* name = nullptr;  // HUD duelist names (~15 px)
 	irr::gui::CGUITTFont* tag = nullptr;   // small caps tags (~11 px, display face)
-	irr::gui::CGUITTFont* small = nullptr; // small plain text (~12 px, text face)
+	irr::gui::CGUITTFont* plain = nullptr; // small plain text (~12 px, text face)
 };
 void Init(irr::video::IVideoDriver* driver, const Fonts& fonts);
 bool Enabled();

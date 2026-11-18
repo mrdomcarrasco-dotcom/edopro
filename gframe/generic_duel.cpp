@@ -94,9 +94,11 @@ void GenericDuel::BrSendSeatInfo() {
 	// team battle royal: u8 teams on/off, then each seat's team (its lobby side)
 	buf.push_back((host_info.duel_flag_high & (DUEL_BATTLE_ROYAL_TEAMS >> 32)) ? 1 : 0);
 	buf.insert(buf.end(), br_team.begin(), br_team.end());
+	br_seat_info.assign(br_players.size(), {});
 	for(size_t seat = 0; seat < br_players.size(); ++seat) {
 		buf[1] = static_cast<uint8_t>(seat);
 		NetServer::SendBufferToPlayer(br_players[seat], STOC_GAME_MSG, buf);
+		br_seat_info[seat] = buf;
 	}
 	buf[1] = 0xff;
 	NetServer::SendBufferToPlayer(nullptr, STOC_GAME_MSG, buf);
@@ -132,8 +134,29 @@ void GenericDuel::BrTurnStart(const CoreUtils::Packet& packet) {
 		for(uint32_t i = 0; i < r.fake_turns; ++i)
 			NetServer::SendBufferToPlayer(dp, STOC_GAME_MSG, turnbuf, sizeof(turnbuf));
 	}
-	if(!reload)
-		return;
+	if(reload)
+		BrReloadField();
+	// bots on the field were muted while the other boards went offstage, and WindBot only hooks the Battle Royal
+	// messages once its executor is running: give them who-is-who, the state and every offstage board again
+	// (MetaExecutor uses them to pick targets; other bots ignore these messages)
+	for(uint8_t s = 0; s < br_players.size(); ++s) {
+		if(!br.seats[s].bot || !br.OnStage(s))
+			continue;
+		auto* dp = br_players[s];
+		if(s < br_seat_info.size() && !br_seat_info[s].empty())
+			NetServer::SendBufferToPlayer(dp, STOC_GAME_MSG, br_seat_info[s]);
+		std::vector<uint8_t> state;
+		state.push_back(packet.message);
+		state.insert(state.end(), packet.data(), packet.data() + packet.buff_size());
+		NetServer::SendBufferToPlayer(dp, STOC_GAME_MSG, state);
+		for(uint8_t o = 0; o < br_board_cache.size(); ++o) {
+			if(o != s && !br.OnStage(o) && !br_board_cache[o].empty())
+				NetServer::SendBufferToPlayer(dp, STOC_GAME_MSG, br_board_cache[o]);
+		}
+	}
+}
+
+void GenericDuel::BrReloadField() {
 	uint32_t len = 0;
 	const auto* field = static_cast<const uint8_t*>(OCG_DuelQueryField(pduel, &len));
 	CoreUtils::Packet reload_packet(MSG_RELOAD_FIELD, field, len);
@@ -149,16 +172,6 @@ void GenericDuel::BrTurnStart(const CoreUtils::Packet& packet) {
 		RefreshGrave(p);
 		RefreshLocation(p, 0x381fff, LOCATION_REMOVED);
 		RefreshExtra(p);
-	}
-	// bots on the field were muted while the other boards went offstage: give them every offstage board
-	// (MetaExecutor uses them to pick targets; other bots ignore the message)
-	for(uint8_t s = 0; s < br_players.size(); ++s) {
-		if(!br.seats[s].bot || !br.OnStage(s))
-			continue;
-		for(uint8_t o = 0; o < br_board_cache.size(); ++o) {
-			if(o != s && !br.OnStage(o) && !br_board_cache[o].empty())
-				NetServer::SendBufferToPlayer(br_players[s], STOC_GAME_MSG, br_board_cache[o]);
-		}
 	}
 }
 
