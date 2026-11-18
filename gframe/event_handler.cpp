@@ -6,6 +6,7 @@
 #include "client_card.h"
 #include "math.h"
 #include "network.h"
+#include "br_client.h"
 #include "game.h"
 #include "duelclient.h"
 #include "data_manager.h"
@@ -59,6 +60,9 @@ namespace ygo {
 std::string showing_repo = "";
 
 bool ClientField::OnEvent(const irr::SEvent& event) {
+	// Battle Royal seat HUD (view another board, switch target)
+	if(brc::OnMouse(event))
+		return true;
 	bool stopPropagation = false;
 	if(OnCommonEvent(event, stopPropagation))
 		return stopPropagation;
@@ -1114,6 +1118,10 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 				break;
 			if(hovered_location == LOCATION_DECK && !mainGame->dInfo.isSingleMode)
 				break;
+			if(hovered_controler == 1 && brc::Viewing()) {
+				brc::ShowViewPile(hovered_location);
+				break;
+			}
 			ShowPileDisplayCards(hovered_location, hovered_controler);
 			break;
 		}
@@ -1138,6 +1146,13 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 			if(panel && panel->isVisible())
 				break;
 			GetHoverField(mousepos);
+			// Battle Royal: the top half shows a frozen board, read-only (its piles open as lists)
+			if(hovered_controler == 1 && brc::Viewing()) {
+				clicked_card = nullptr;
+				if(!mainGame->wCardSelect->isVisible() && !mainGame->wCardDisplay->isVisible())
+					brc::ShowViewPile(hovered_location);
+				break;
+			}
 			if(hovered_location & 0xe)
 				clicked_card = GetCard(hovered_controler, hovered_location, hovered_sequence);
 			else clicked_card = 0;
@@ -1531,7 +1546,9 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 			uint8_t mplayer = 2;
 			if(!panel || !panel->isVisible() || !panel->getRelativePosition().isPointInside(mousepos)) {
 				GetHoverField(mousepos);
-				if(hovered_location & 0xe)
+				if(hovered_controler == 1 && brc::Viewing() && hovered_location)
+					mcard = brc::ViewCard(hovered_location, hovered_sequence); // Battle Royal: viewed board
+				else if(hovered_location & 0xe)
 					mcard = GetCard(hovered_controler, hovered_location, hovered_sequence);
 				else if(hovered_location == LOCATION_GRAVE) {
 					if(grave[hovered_controler].size())

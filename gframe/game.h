@@ -111,6 +111,7 @@ struct DuelInfo {
 			uint8_t team = 0; // lobby side (only meaningful when teams)
 			uint32_t deck = 0, hand = 0, extra = 0, grave = 0, removed = 0, monsters = 0;
 			std::wstring top_monster;
+			std::vector<uint8_t> board; // last MSG_SEAT_BOARD body (its frozen board), see br_client
 		};
 		bool active = false;
 		bool teams = false; // team battle royal (DUEL_BATTLE_ROYAL_TEAMS)
@@ -569,7 +570,6 @@ public:
 	void DrawCards();
 	void DrawCard(ClientCard* pcard);
 	void DrawMisc();
-	void DrawBattleRoyal();
 	void DrawStatus(ClientCard* pcard);
 	void DrawPendScale(ClientCard* pcard);
 	void DrawStackIndicator(epro::wstringview text, const Materials::QuadVertex v, bool opponent);

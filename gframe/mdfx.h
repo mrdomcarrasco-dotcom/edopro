@@ -27,6 +27,8 @@ struct Fonts {
 	irr::gui::CGUITTFont* num = nullptr;   // chain numerals (EDOPRO's lpcFont)
 	irr::gui::CGUITTFont* lp = nullptr;    // HUD life points (number font, ~34 px)
 	irr::gui::CGUITTFont* name = nullptr;  // HUD duelist names (~15 px)
+	irr::gui::CGUITTFont* tag = nullptr;   // small caps tags (~11 px, display face)
+	irr::gui::CGUITTFont* small = nullptr; // small plain text (~12 px, text face)
 };
 void Init(irr::video::IVideoDriver* driver, const Fonts& fonts);
 bool Enabled();
@@ -69,6 +71,46 @@ bool DrawHud(const HudInfo& info); // false -> caller draws the stock LP bars
 void Pill(const irr::core::recti& r);
 // the big LP change number ("-3000", "+500") as title-art digits; false -> caller draws EDOPRO's text
 bool LpNumber(const std::wstring& text, int player, int framesLeft);
+
+// --- Battle Royal HUD (replaces DrawHud when a Battle Royal is on) ---
+struct SeatChip {
+	std::wstring name;
+	int lp = 0;
+	uint32_t hand = 0, deck = 0, extra = 0, grave = 0, banished = 0;
+	bool alive = true;
+	int placement = 0;
+	bool turn = false;      // the turn player
+	bool target = false;    // the turn player's current target
+	bool onField = false;   // sits in the top half of the field right now (live)
+	bool viewing = false;   // the top half shows this seat's frozen board
+	bool hovered = false;
+	bool canTarget = false; // it is our turn and we may switch our target to this seat
+	bool targetHover = false;
+	bool isYou = false;
+	int team = -1;          // team battle royal: 0 / 1, else -1
+	int colorIndex = 0;     // per-seat accent in a free-for-all
+};
+struct SeatHud {
+	int lp = 0;             // bottom plate (you, or the seat at the bottom when spectating)
+	int startlp = 8000;
+	std::wstring name;
+	bool bottomTurn = false;
+	int turn = 0;
+	int bottomTeam = -1;
+	std::vector<SeatChip> chips;
+	// centre-line status pill: live = "LIVE · <name>", else "VIEWING <name> · frozen" + Back to live
+	bool viewing = false;
+	std::wstring fieldName;
+	bool backHover = false;
+	bool targetHint = false; // our turn just started: pulse the seats we can target
+};
+struct SeatHudRects {
+	std::vector<irr::core::recti> chip, target;
+	irr::core::recti back;
+};
+bool DrawSeatHud(const SeatHud& in, SeatHudRects& out);
+// short notice under the HUD ("Kaiba targets Joey", "You are under attack", eliminations); kind 0 info, 1 you, 2 out
+void SeatToast(const std::wstring& text, int kind);
 
 // --- test aids (environment variables, off unless set) ---
 // MDFX_AUTOPUZZLE=<puzzle path>: start that puzzle from the main menu. MDFX_CAPTURE=<dir>: write the

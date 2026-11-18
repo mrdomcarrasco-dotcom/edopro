@@ -258,6 +258,7 @@ namespace ygo {
 				ReplayRefresh(1, LOCATION_DECK);
 				break;
 			}
+			case MSG_SEAT_TARGET:
 			case MSG_SEAT_TURN: {
 				// Battle Royal: whole boards changed seats at this turn start; rebuild the field like the
 				// server does for live clients (MSG_RELOAD_FIELD from the engine, then fresh card data)

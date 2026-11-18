@@ -27,6 +27,10 @@ namespace ygo {
 #define MSG_SEAT_TURN            167
 #define MSG_SEAT_ELIMINATED      168
 #endif
+#ifndef MSG_SEAT_TARGET
+#define MSG_SEAT_TARGET          171
+#define MSG_SEAT_BOARD           172
+#endif
 #ifndef MSG_SEAT_INFO
 // server-made (not from the core): u8 your seat (0xff = spectator/replay), u8 seat count,
 // then per seat: u16 name[20]; then u8 team battle royal (0/1) and per seat u8 team (lobby side)

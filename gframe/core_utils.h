@@ -57,6 +57,9 @@ public:
 	void GenerateBuffer(std::vector<uint8_t>& len, bool is_for_public_buffer, bool check_hidden) const;
 	struct Token {};
 	Query(Token, const uint8_t*& buff, bool legacy_race_size) { Parse(buff, legacy_race_size); };
+	// read-only views (Battle Royal board snapshots build their own cards from a query)
+	bool IsEmpty() const { return onfield_skipped; }
+	size_t OverlayCount() const { return (flag & 0x10000) ? overlay_cards.size() : 0; }
 private:
 	void Parse(const uint8_t*& buff, bool legacy_race_size);
 	void ParseCompat(const uint8_t* buff, uint32_t len);

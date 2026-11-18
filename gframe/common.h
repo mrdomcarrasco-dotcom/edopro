@@ -318,6 +318,8 @@
 #define MSG_SEAT_TURN            167
 #define MSG_SEAT_ELIMINATED      168
 #define MSG_SEAT_INFO            169 // battle royal, made by the server: your seat + every seat's name
+#define MSG_SEAT_TARGET          171 // battle royal: the turn player switched its target (MSG_SEAT_TURN layout)
+#define MSG_SEAT_BOARD           172 // battle royal: a seat's public board as it goes offstage
 #define MSG_MATCH_KILL           170
 #define MSG_CUSTOM_MSG           180
 #define MSG_REMOVE_CARDS         190

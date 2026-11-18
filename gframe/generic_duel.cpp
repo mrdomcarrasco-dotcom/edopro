@@ -150,6 +150,56 @@ void GenericDuel::BrTurnStart(const CoreUtils::Packet& packet) {
 		RefreshLocation(p, 0x381fff, LOCATION_REMOVED);
 		RefreshExtra(p);
 	}
+	// bots on the field were muted while the other boards went offstage: give them every offstage board
+	// (MetaExecutor uses them to pick targets; other bots ignore the message)
+	for(uint8_t s = 0; s < br_players.size(); ++s) {
+		if(!br.seats[s].bot || !br.OnStage(s))
+			continue;
+		for(uint8_t o = 0; o < br_board_cache.size(); ++o) {
+			if(o != s && !br.OnStage(o) && !br_board_cache[o].empty())
+				NetServer::SendBufferToPlayer(br_players[s], STOC_GAME_MSG, br_board_cache[o]);
+		}
+	}
+}
+
+// MSG_SEAT_BOARD (core packet) -> the seat's own copy and the public copy, each with the message id.
+// Every block's query is re-encoded the way RefreshLocation does it (owner: hidden-checked, others: public).
+bool GenericDuel::BrBoardBuffers(const CoreUtils::Packet& packet, std::vector<uint8_t>& full, std::vector<uint8_t>& pub) {
+	const auto* p = packet.data();
+	const size_t len = packet.buff_size();
+	static constexpr size_t header = 1 + 1 + 1 + 4 + 6 * 4; // seat, alive, placement, lp, 6 counts
+	if(len < header + 1)
+		return false;
+	full.assign({ static_cast<uint8_t>(MSG_SEAT_BOARD) });
+	full.insert(full.end(), p, p + header + 1);
+	pub = full;
+	const uint8_t blocks = p[header];
+	size_t pos = header + 1;
+	for(uint8_t b = 0; b < blocks; ++b) {
+		if(pos + 5 > len)
+			return false;
+		const uint8_t loc = p[pos];
+		uint32_t blen;
+		std::memcpy(&blen, p + pos + 1, sizeof(blen));
+		pos += 5;
+		if(pos + blen > len || blen < 4)
+			return false;
+		std::vector<uint8_t> raw(p + pos, p + pos + blen);
+		pos += blen;
+		CoreUtils::QueryStream query(raw.data());
+		for(auto* out : { &full, &pub }) {
+			out->push_back(loc);
+			const auto at = out->size();
+			out->resize(at + sizeof(uint32_t));
+			if(out == &full)
+				query.GenerateBuffer(*out, true);
+			else
+				query.GeneratePublicBuffer(*out);
+			const uint32_t written = static_cast<uint32_t>(out->size() - at - sizeof(uint32_t));
+			std::memcpy(out->data() + at, &written, sizeof(written));
+		}
+	}
+	return true;
 }
 
 void GenericDuel::Chat(DuelPlayer* dp, void* pdata, int len) {
@@ -711,6 +761,7 @@ void GenericDuel::TPResult(DuelPlayer* dp, uint8_t tp) {
 			views.push_back(td[0]); // the MSG_START type below: 0 for the first team, 1 for the second
 		}
 		br.Init(is_bot, views);
+		br_board_cache.assign(br_players.size(), {});
 		cur_player[0] = br_players[0];
 		cur_player[1] = br_players[1];
 	}
@@ -1255,6 +1306,28 @@ void GenericDuel::Sending(CoreUtils::Packet& packet, int& return_value, bool& re
 		}
 		break;
 	}
+	case MSG_SEAT_BOARD: {
+		// Battle Royal: a seat's board as it goes offstage. The seat's own duelist gets everything (its hand,
+		// its face-down cards), everyone else the public copy; bots also get it again at every turn start.
+		if(!battle_royal)
+			break;
+		std::vector<uint8_t> full, pub;
+		if(!BrBoardBuffers(packet, full, pub))
+			break;
+		const auto seat = packet.data()[0];
+		DuelPlayer* owner = seat < br_players.size() ? br_players[seat] : nullptr;
+		if(owner && !BrMuted(owner))
+			NetServer::SendBufferToPlayer(owner, STOC_GAME_MSG, full);
+		NetServer::SendBufferToPlayer(nullptr, STOC_GAME_MSG, pub);
+		IteratePlayersAndObs([this, owner](DuelPlayer* dueler) {
+			if(dueler != owner && !BrMuted(dueler))
+				NetServer::ReSendToPlayer(dueler);
+		});
+		packets_cache.emplace_back(pub.data(), pub.size());
+		if(seat < br_board_cache.size())
+			br_board_cache[seat] = std::move(pub);
+		break;
+	}
 	case MSG_SEAT_SWAP: {
 		// Battle Royal: the seat now in this slot answers the slot's prompts from here on
 		if(battle_royal && br.OnSeatSwap(pbuf, packet.buff_size())) {
@@ -1317,7 +1390,9 @@ void GenericDuel::AfterParsing(const CoreUtils::Packet& packet, [[maybe_unused]]
 			br.OnNewTurn();
 		break;
 	}
-	case MSG_SEAT_TURN: {
+	case MSG_SEAT_TURN:
+	case MSG_SEAT_TARGET: {
+		// turn start / the turn player switched its target: same routing (bots that came in get resynced)
 		if(battle_royal)
 			BrTurnStart(packet);
 		break;

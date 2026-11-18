@@ -363,9 +363,11 @@ void NetServer::HandleCTOSPacket(DuelPlayer* dp, uint8_t* data, uint32_t len) {
 		if(!(pkt.info.duel_flag_high & (DUEL_BATTLE_ROYAL >> 32)))
 			pkt.info.duel_flag_high &= ~static_cast<uint32_t>(DUEL_BATTLE_ROYAL_TEAMS >> 32);
 		if(pkt.info.duel_flag_high & (DUEL_BATTLE_ROYAL >> 32)) {
-			// Battle Royal: 3 or 4 seats (2+1, 1+2 or 2+2 lobby slots), one duel, no relay
-			pkt.info.team1 = std::min(pkt.info.team1, 2);
-			pkt.info.team2 = std::min(pkt.info.team2, 2);
+			// Battle Royal: 3 or 4 seats (lobby sides 1+2, 2+1, 2+2, 1+3 or 3+1), one duel, no relay
+			if(pkt.info.team1 + pkt.info.team2 > 4) {
+				pkt.info.team1 = std::min(pkt.info.team1, 2);
+				pkt.info.team2 = std::min(pkt.info.team2, 2);
+			}
 			if(pkt.info.team1 + pkt.info.team2 < 3) {
 				pkt.info.duel_flag_high &= ~static_cast<uint32_t>((DUEL_BATTLE_ROYAL | DUEL_BATTLE_ROYAL_TEAMS) >> 32);
 			} else {

@@ -7,6 +7,7 @@
 #include "image_downloader.h"
 #include "config.h"
 #include "game.h"
+#include "br_client.h"
 #include "server_lobby.h"
 #include "sound_manager.h"
 #include "image_manager.h"
@@ -203,6 +204,12 @@ void Game::Initialize() {
 			}
 		}
 		fonts.name = make(15);
+		fonts.tag = make(11);
+		{
+			auto font = gGameConfig->textfont;
+			font.size = (uint8_t)Scale(12);
+			fonts.small = irr::gui::CGUITTFont::createTTFont(env, font, fallbackFonts);
+		}
 		mdfx::Init(driver, fonts);
 	}
 	if(!ApplySkin(gGameConfig->skin, false, true)) {
@@ -1257,9 +1264,9 @@ void Game::PopulateGameHostWindows() {
 		defaultStrings.emplace_back(env->addStaticText(gDataManager->GetSysString(1231).data(), Scale(20, 250, 135, 270), false, false, tDuelSettings), 1231);
 		// Battle Royal: 3-4 player free-for-all (2+1 or 2+2 slots of the team counts above), system.conf battleRoyal
 		chkBattleRoyal = env->addCheckBox(gGameConfig->battleRoyal, Scale(230, 247, 370, 268), tDuelSettings, -1, L"Battle Royal");
-		chkBattleRoyal->setToolTipText(L"Free-for-all for 3 or 4 duelists (team counts 2+1 or 2+2): everyone has their own field and LP, last one standing wins.");
+		chkBattleRoyal->setToolTipText(L"Free-for-all for 3 or 4 duelists (team counts 1+2, 2+1, 2+2, 1+3 or 3+1): everyone has their own field and LP, attacks whoever they want, last one standing wins.");
 		chkBattleRoyalTeams = env->addCheckBox(gGameConfig->battleRoyalTeams, Scale(230, 277, 370, 298), tDuelSettings, -1, L"BR: sides are teams");
-		chkBattleRoyalTeams->setToolTipText(L"Team Battle Royal: every duelist keeps their own field and LP, but the two lobby sides are teams (e.g. Yugi + Kaiba vs Dartz). Nobody attacks a teammate; the last team standing wins.");
+		chkBattleRoyalTeams->setToolTipText(L"Team Battle Royal: every duelist keeps their own field and LP, but the two lobby sides are teams (e.g. Yugi + Kaiba vs Dartz, or one duelist vs a team of three). Nobody attacks a teammate; the last team standing wins.");
 		ebStartLP = env->addEditBox(WStr(gGameConfig->startLP), Scale(140, 245, 220, 270), true, tDuelSettings, EDITBOX_NUMERIC);
 		ebStartLP->setTextAlignment(irr::gui::EGUIA_CENTER, irr::gui::EGUIA_CENTER);
 		defaultStrings.emplace_back(env->addStaticText(gDataManager->GetSysString(1232).data(), Scale(20, 280, 135, 300), false, false, tDuelSettings), 1232);
@@ -2167,6 +2174,7 @@ bool Game::MainLoop() {
 				DrawBackImage(imageManager.tBackGround_duel_topdown, resized);
 			else
 				DrawBackImage(imageManager.tBackGround, resized);
+			brc::BeginFrame(); // Battle Royal: a viewed (frozen) board takes the top half while drawing
 			mdfx::Update(delta_time);
 			{
 				const auto shake = mdfx::CameraOffset();
@@ -2252,6 +2260,8 @@ bool Game::MainLoop() {
 		}
 		mdfx::DevDemo(dInfo.isInDuel);
 		mdfx::DevCapture(dInfo.isInDuel);
+		brc::EndFrame();
+		brc::AutoTest();
 		driver->endScene();
 		gMutex.unlock();
 		if(closeDuelWindow)
@@ -3094,6 +3104,10 @@ void Game::ClearTextures() {
 	imageManager.ClearTexture();
 }
 void Game::CloseDuelWindow() {
+	{
+		std::lock_guard<epro::mutex> lock(gMutex);
+		brc::Reset();
+	}
 	for(auto wit = fadingList.begin(); wit != fadingList.end(); ++wit) {
 		if(wit->isFadein)
 			wit->autoFadeoutFrame = 1;

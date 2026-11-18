@@ -1404,6 +1404,246 @@ bool DrawHud(const HudInfo& info) {
 	return true;
 }
 
+// --- Battle Royal HUD ---------------------------------------------------------------------------
+// Bottom seat: the usual plate on the left. Every other seat: a compact plate (ring + bar + lotus cap
+// cut from the same plate art) in a fixed order on the right, so a seat never moves around. A centre
+// pill says whether the top half is LIVE or a frozen board being viewed.
+namespace {
+struct Toast { std::wstring text; int kind = 0; float t = -1.f; } toast;
+const video::SColor kSeatAccent[4] = { { 255, 226, 186, 96 }, { 255, 214, 84, 84 }, { 255, 86, 196, 214 }, { 255, 168, 128, 236 } };
+const video::SColor kTeamAccent[2] = { { 255, 232, 190, 92 }, { 255, 84, 196, 226 } };
+video::SColor Accent(int team, int idx) { return team >= 0 ? kTeamAccent[team & 1] : kSeatAccent[idx & 3]; }
+// the plate art in three slices: ring (left cap), bar (stretched), lotus tip (right cap)
+void MiniPlate(float x0, float y0, float w, float h, video::SColor tint) {
+	const auto ps = hud.plate->getOriginalSize();
+	const float pw = (float)ps.Width, ph = (float)ps.Height;
+	const float ringW = ph * 1.0f, capW = pw * 0.13f;      // source widths
+	const float dRing = h * ringW / ph, dCap = h * capW / ph; // drawn widths
+	const float mid = std::max(1.f, w - dRing - dCap);
+	Quad(hud.plate, core::rect<s32>(0, 0, (s32)ringW, (s32)ph), { x0 + dRing / 2.f, y0 + h / 2.f }, dRing, h, 0.f, tint, false);
+	Quad(hud.plate, core::rect<s32>((s32)ringW, 0, (s32)(pw - capW), (s32)ph), { x0 + dRing + mid / 2.f, y0 + h / 2.f }, mid + 1.f, h, 0.f, tint, false);
+	Quad(hud.plate, core::rect<s32>((s32)(pw - capW), 0, (s32)pw, (s32)ph), { x0 + dRing + mid + dCap / 2.f, y0 + h / 2.f }, dCap, h, 0.f, tint, false);
+}
+void SmallPill(const core::recti& r, video::SColor edge, float a) {
+	const s32 x0 = r.UpperLeftCorner.X, y0 = r.UpperLeftCorner.Y, x1 = r.LowerRightCorner.X, y1 = r.LowerRightCorner.Y;
+	drv->draw2DRectangle(core::rect<s32>(x0 + 1, y0 + 1, x1 - 1, y1 - 1), col(a * 0.92f, { 255, 26, 30, 40 }), col(a * 0.92f, { 255, 26, 30, 40 }),
+						 col(a * 0.92f, { 255, 10, 12, 17 }), col(a * 0.92f, { 255, 10, 12, 17 }));
+	const auto e = col(a, edge), ed = col(a * 0.55f, edge);
+	drv->draw2DLine({ x0 + 2, y0 }, { x1 - 2, y0 }, e);
+	drv->draw2DLine({ x0 + 2, y1 - 1 }, { x1 - 2, y1 - 1 }, ed);
+	drv->draw2DLine({ x0, y0 + 2 }, { x0, y1 - 2 }, ed);
+	drv->draw2DLine({ x1 - 1, y0 + 2 }, { x1 - 1, y1 - 2 }, ed);
+}
+// tiny card / stack glyphs for the hand and deck counts
+void CardGlyph(float x, float y, float h, int stack, video::SColor c) {
+	const float w = h * 0.7f;
+	for(int i = stack - 1; i >= 0; --i) {
+		const s32 ox = (s32)(x + i * h * 0.16f), oy = (s32)(y - i * h * 0.16f);
+		drv->draw2DRectangle(col(0.9f, { 255, 18, 20, 26 }), core::rect<s32>(ox, oy, ox + (s32)w, oy + (s32)h));
+		drv->draw2DRectangleOutline(core::rect<s32>(ox, oy, ox + (s32)w, oy + (s32)h), c);
+	}
+}
+void DrawToast(float W, float H, float sx, float sy, float dtMs) {
+	if(toast.t < 0.f || toast.text.empty()) return;
+	toast.t += std::min(dtMs, 100.f);
+	const float D = 2200.f;
+	if(toast.t > D) { toast.t = -1.f; return; }
+	auto* f = F.plate ? F.plate : F.name;
+	if(!f) return;
+	const float a = smooth(0.f, 160.f, toast.t) * (1.f - smooth(D - 350.f, D, toast.t));
+	const auto d = TextSize(f, toast.text);
+	const float cx = 660.f * sx, cy = 248.f * sy + (1.f - outCubic(toast.t / 260.f)) * 8.f * sy;
+	const float pw = d.Width + 48.f * sx, ph = d.Height + 12.f * sy;
+	const video::SColor edge = toast.kind == 1 ? video::SColor(255, 236, 92, 80) : toast.kind == 2 ? video::SColor(255, 190, 170, 160) : video::SColor(255, 222, 186, 100);
+	SmallPill(core::recti((s32)(cx - pw / 2.f), (s32)(cy - ph / 2.f), (s32)(cx + pw / 2.f), (s32)(cy + ph / 2.f)), edge, a);
+	const video::SColor tc = toast.kind == 1 ? video::SColor(255, 255, 210, 200) : video::SColor(255, 250, 240, 220);
+	Text(f, toast.text, cx - d.Width / 2.f, cy - d.Height / 2.f, col(a, tc), a * 0.8f, 1);
+}
+} // namespace
+
+void SeatToast(const std::wstring& text, int kind) {
+	toast.text = text;
+	toast.kind = kind;
+	toast.t = 0.f;
+}
+
+bool DrawSeatHud(const SeatHud& in, SeatHudRects& out) {
+	out.chip.assign(in.chips.size(), {});
+	out.target.assign(in.chips.size(), {});
+	out.back = {};
+	if(!drv) return false;
+	LoadHud();
+	const float W = SW(), H = SH(), sx = W / 1024.f, sy = H / 640.f;
+	const float pulse = 0.5f + 0.5f * std::sin(clockMs * 0.004f);
+	const bool art = Enabled() && hud.plate && hud.you && hud.opp;
+	const uint32_t now = (uint32_t)clockMs;
+	const float dtMs = lastClock ? (float)(now - lastClock) : 16.f;
+	lastClock = now;
+	// bottom seat: the normal plate
+	const float h = 62.f * sy;
+	float plateW = 255.f * sx;
+	if(art) {
+		const auto ps = hud.plate->getOriginalSize();
+		plateW = h * (float)ps.Width / (float)ps.Height;
+		Plate(322.f * sx, 4.f * sy, plateW, h, false, in.lp, in.startlp, in.name, in.bottomTurn, 0, dtMs);
+	}
+	// turn medallion, smaller, right after it
+	const float medX = 322.f * sx + plateW + 16.f * sx, medY = 4.f * sy + h * 0.5f, medS = h * 0.72f;
+	if(art && hud.turn) {
+		Quad(hud.turn, { medX, medY }, medS, medS, 0.f, video::SColor(255, 255, 255, 255), false);
+		const std::wstring tn = std::to_wstring(in.turn);
+		auto* f = FitFont(medS * 0.38f);
+		const auto d = TextSize(f, tn);
+		Text(f, tn, medX - d.Width / 2.f, medY - d.Height / 2.f - 1.f, { 255, 250, 236, 200 }, 0.9f, 2);
+	}
+	// the other seats
+	const size_t n = in.chips.size();
+	const float rx0 = medX + medS * 0.5f + 8.f * sx, rx1 = 1018.f * sx;
+	const float gap = 6.f * sx;
+	const float cw = n ? std::min(250.f * sx, (rx1 - rx0 - gap * (n - 1)) / n) : 0.f;
+	const float ch = 54.f * sy, cy0 = 6.f * sy;
+	auto* nameF = F.name ? F.name : F.statline;
+	auto* tagF = F.tag ? F.tag : nameF;
+	auto* smallF = F.small ? F.small : nameF;
+	for(size_t i = 0; i < n; ++i) {
+		const auto& c = in.chips[i];
+		const float x0 = rx1 - (n - i) * cw - (n - 1 - i) * gap;
+		const core::recti rect((s32)x0, (s32)cy0, (s32)(x0 + cw), (s32)(cy0 + ch));
+		out.chip[i] = rect;
+		const video::SColor accent = Accent(c.team, c.colorIndex);
+		const float dimK = c.alive ? 1.f : 0.45f;
+		const float ringD = ch;
+		const float ringCX = x0 + ringD / 2.f, ringCY = cy0 + ch / 2.f;
+		// turn player: the same soft aura as the big plate; target: a restrained crimson underglow
+		if(c.alive && c.turn)
+			Quad(tGlow, { x0 + cw / 2.f, ringCY }, cw * 1.2f, ch * 1.9f, 0.f, addc(0.26f + 0.16f * pulse, { 255, 70, 220, 210 }), true);
+		else if(c.alive && c.target)
+			Quad(tGlow, { x0 + cw / 2.f, ringCY }, cw * 1.15f, ch * 1.7f, 0.f, addc(0.20f + 0.08f * pulse, { 255, 230, 60, 50 }), true);
+		if(in.targetHint && c.canTarget)
+			Quad(tGlow, { x0 + cw / 2.f, ringCY }, cw * 1.1f, ch * 1.6f, 0.f, addc(0.14f + 0.18f * pulse, { 255, 240, 120, 80 }), true);
+		// portrait: the opponent emblem, darkened, with the seat's initial over it
+		const u8 lum = (u8)(c.alive ? (c.hovered || c.viewing ? 255 : 215) : 110);
+		if(art) {
+			Quad(c.isYou ? hud.you : hud.opp, { ringCX, ringCY }, ringD * 0.84f, ringD * 0.84f, 0.f,
+				 video::SColor(255, (u8)(lum * 0.55f), (u8)(lum * 0.55f), (u8)(lum * 0.55f)), false);
+			MiniPlate(x0, cy0, cw, ch, video::SColor(255, lum, lum, lum));
+		} else {
+			SmallPill(rect, accent, 1.f);
+		}
+		if(!c.name.empty()) {
+			const std::wstring ini(1, (wchar_t)std::towupper(c.name[0]));
+			auto* bf = FitFont(ringD * 0.44f);
+			const auto d = TextSize(bf, ini);
+			Text(bf, ini, ringCX - d.Width / 2.f, ringCY - d.Height / 2.f, col(dimK, accent), 0.9f, 2);
+		}
+		// text area: between the ring and the lotus cap
+		const float tx0 = x0 + ringD * 0.96f, tx1 = x0 + cw - ch * 0.30f;
+		const core::recti clip((s32)tx0, (s32)cy0, (s32)tx1, (s32)(cy0 + ch));
+		float rowY = cy0 + ch * 0.15f;
+		const auto nd = TextSize(nameF, c.name);
+		Text(nameF, c.name, tx0, rowY, c.alive ? video::SColor(255, 250, 240, 215) : video::SColor(255, 150, 140, 130), 0.85f, 1, &clip);
+		rowY += nd.Height;
+		// status tag, top right of the text area
+		std::wstring tag;
+		video::SColor tagC(255, 220, 200, 150);
+		if(!c.alive) {
+			static const wchar_t* pl[]{ L"", L"1ST", L"2ND", L"3RD", L"4TH" };
+			tag = epro::format(L"OUT {}", c.placement >= 0 && c.placement < 5 ? pl[c.placement] : L"");
+			tagC = { 255, 200, 120, 110 };
+		} else if(c.viewing) { tag = L"VIEWING"; tagC = { 255, 235, 235, 245 }; }
+		else if(c.turn) { tag = L"TURN"; tagC = { 255, 120, 235, 220 }; }
+		else if(c.target) { tag = L"TARGET"; tagC = { 255, 255, 120, 105 }; }
+		if(!tag.empty()) {
+			const auto td = TextSize(tagF, tag);
+			Text(tagF, tag, tx1 - td.Width, cy0 + ch * 0.06f + (nd.Height > td.Height ? 0.f : 0.f) - td.Height * 0.15f, tagC, 0.9f, 1);
+		}
+		// LP + counts
+		const float gaugeY0 = cy0 + ch * 0.80f, gaugeY1 = cy0 + ch * 0.86f;
+		if(c.alive) {
+			auto* lf = FitFont((gaugeY0 - rowY) * 1.05f);
+			const std::wstring lps = std::to_wstring(std::max(0, c.lp));
+			const auto ld = TextSize(lf, lps);
+			const float ly = rowY + (gaugeY0 - rowY - ld.Height) * 0.5f;
+			const video::SColor lc = c.lp * 4 < in.startlp ? video::SColor(255, 255, 140, 120) : video::SColor(255, 250, 244, 228);
+			Text(lf, lps, tx0, ly, lc, 0.85f, 1, &clip);
+			// hand / deck counts after the LP, if they fit
+			const float gh = (gaugeY0 - rowY) * 0.46f;
+			const std::wstring hs = std::to_wstring(c.hand), ds = std::to_wstring(c.deck);
+			const auto hd = TextSize(smallF, hs), dd = TextSize(smallF, ds);
+			const float need = gh * 0.7f + 3.f * sx + hd.Width + 8.f * sx + gh * 0.9f + 3.f * sx + dd.Width;
+			float cx = tx1 - need;
+			if(cx > tx0 + ld.Width + 6.f * sx) {
+				const float gy = rowY + (gaugeY0 - rowY - gh) * 0.5f;
+				const video::SColor gc(220, 200, 176, 120);
+				CardGlyph(cx, gy, gh, 1, gc);
+				cx += gh * 0.7f + 3.f * sx;
+				Text(smallF, hs, cx, gy + (gh - hd.Height) * 0.5f, { 255, 225, 215, 195 }, 0.7f, 1);
+				cx += hd.Width + 8.f * sx;
+				CardGlyph(cx, gy + gh * 0.16f, gh * 0.84f, 2, gc);
+				cx += gh * 0.9f + 3.f * sx;
+				Text(smallF, ds, cx, gy + (gh - dd.Height) * 0.5f, { 255, 225, 215, 195 }, 0.7f, 1);
+			}
+			// LP gauge
+			const float g = in.startlp > 0 ? clamp01((float)c.lp / (float)in.startlp) : 0.f;
+			FillRect((s32)tx0, (s32)gaugeY0, (s32)tx1, (s32)gaugeY1, { 200, 4, 6, 8 });
+			const video::SColor g0 = lerpc(accent, { 255, 40, 30, 20 }, 0.55f);
+			if(g > 0.f)
+				drv->draw2DRectangle(core::rect<s32>((s32)tx0, (s32)gaugeY0, (s32)(tx0 + (tx1 - tx0) * g), (s32)gaugeY1), g0, accent, g0, accent);
+		} else {
+			FillRect((s32)tx0, (s32)gaugeY0, (s32)tx1, (s32)gaugeY1, { 160, 30, 12, 12 });
+		}
+		// on the field (live): a thin accent line under the plate; viewing: a white one
+		if(c.onField || c.viewing) {
+			const video::SColor lc = c.viewing ? video::SColor(230, 240, 240, 250) : col(0.9f, accent);
+			FillRect((s32)(x0 + ringD * 0.5f), (s32)(cy0 + ch + 2.f * sy), (s32)(x0 + cw - ch * 0.2f), (s32)(cy0 + ch + 4.f * sy), lc);
+		}
+		// "TARGET" button over the lower half when we may switch to this seat
+		if(c.canTarget && (c.hovered || in.targetHint)) {
+			const float bw = std::min(tx1 - tx0, 86.f * sx), bh = ch * 0.40f;
+			const float bx = tx1 - bw, by = cy0 + ch * 0.50f;
+			const core::recti br((s32)bx, (s32)by, (s32)(bx + bw), (s32)(by + bh));
+			out.target[i] = br;
+			const float k = c.targetHover ? 1.f : 0.82f;
+			drv->draw2DRectangle(br, col(k, { 255, 150, 26, 26 }), col(k, { 255, 150, 26, 26 }), col(k, { 255, 84, 10, 12 }), col(k, { 255, 84, 10, 12 }));
+			drv->draw2DRectangleOutline(br, col(k, { 255, 255, 170, 120 }));
+			const std::wstring bt = L"ATTACK";
+			const auto bd = TextSize(tagF, bt);
+			Text(tagF, bt, bx + (bw - bd.Width) / 2.f, by + (bh - bd.Height) / 2.f, { 255, 255, 240, 225 }, 0.8f, 1);
+		}
+	}
+	// centre pill: LIVE <name> / VIEWING <name> (frozen) + Back to live
+	if(!in.fieldName.empty()) {
+		const std::wstring head = in.viewing ? L"VIEWING" : L"LIVE";
+		const std::wstring body = in.viewing ? epro::format(L"{}  ·  frozen board", in.fieldName) : in.fieldName;
+		const auto hd = TextSize(tagF, head), bd = TextSize(smallF, body);
+		const float px = 332.f * sx, py = 306.f * sy, ph = std::max(hd.Height, bd.Height) + 8.f * sy;
+		const float dotW = in.viewing ? 0.f : 10.f * sx;
+		const float pw = 14.f * sx + dotW + hd.Width + 8.f * sx + bd.Width + 14.f * sx;
+		const video::SColor edge = in.viewing ? video::SColor(255, 230, 230, 240) : video::SColor(255, 222, 186, 100);
+		SmallPill(core::recti((s32)px, (s32)(py - ph / 2.f), (s32)(px + pw), (s32)(py + ph / 2.f)), edge, 0.95f);
+		float x = px + 14.f * sx;
+		if(!in.viewing) {
+			const float r = 3.f * sy;
+			drv->draw2DRectangle(col(0.6f + 0.4f * pulse, { 255, 236, 70, 60 }), core::recti((s32)x, (s32)(py - r), (s32)(x + 2 * r), (s32)(py + r)));
+			x += dotW;
+		}
+		Text(tagF, head, x, py - hd.Height / 2.f, in.viewing ? video::SColor(255, 240, 240, 250) : video::SColor(255, 255, 214, 130), 0.8f, 1);
+		x += hd.Width + 8.f * sx;
+		Text(smallF, body, x, py - bd.Height / 2.f, { 255, 225, 220, 210 }, 0.7f, 1);
+		if(in.viewing) {
+			const std::wstring bt = L"BACK TO LIVE";
+			const auto btd = TextSize(tagF, bt);
+			const float bx = px + pw + 8.f * sx, bw = btd.Width + 24.f * sx;
+			const core::recti br((s32)bx, (s32)(py - ph / 2.f), (s32)(bx + bw), (s32)(py + ph / 2.f));
+			out.back = br;
+			SmallPill(br, in.backHover ? video::SColor(255, 255, 230, 160) : video::SColor(255, 222, 186, 100), 1.f);
+			Text(tagF, bt, bx + 12.f * sx, py - btd.Height / 2.f, in.backHover ? video::SColor(255, 255, 240, 200) : video::SColor(255, 240, 220, 170), 0.8f, 1);
+		}
+	}
+	DrawToast(W, H, sx, sy, dtMs);
+	return true;
+}
+
 void Pill(const core::recti& r) {
 	if(!Enabled()) return;
 	const s32 x0 = r.UpperLeftCorner.X, y0 = r.UpperLeftCorner.Y, x1 = r.LowerRightCorner.X, y1 = r.LowerRightCorner.Y;

@@ -145,6 +145,8 @@ protected:
 	uint8_t BrLoserSlot(DuelPlayer* dp) const; // slot reported as losing when dp leaves/surrenders
 	void BrSendSeatInfo();
 	void BrTurnStart(const CoreUtils::Packet& packet);
+	bool BrBoardBuffers(const CoreUtils::Packet& packet, std::vector<uint8_t>& full, std::vector<uint8_t>& pub);
+	std::vector<std::vector<uint8_t>> br_board_cache; // seat -> its last public MSG_SEAT_BOARD (with the id)
 	struct {
 		std::vector<duelist> home;
 		std::vector<duelist> opposing;
