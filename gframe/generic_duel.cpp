@@ -1014,6 +1014,14 @@ void GenericDuel::Sending(CoreUtils::Packet& packet, int& return_value, bool& re
 	uint8_t player;
 	uint8_t* pbufw;
 	auto* pbuf = packet.data();
+	if(const char* trace = std::getenv("BR_AUTOTEST"); trace && *trace && ((message >= 10 && message <= 26) || (message >= 130 && message <= 143) || message == MSG_RETRY)) {
+		if(FILE* f = std::fopen("br-server.log", "a")) {
+			std::fprintf(f, "prompt msg %d player %d bytes", static_cast<int>(message), packet.buff_size() ? static_cast<int>(packet.data()[0]) : -1);
+			for(size_t i = 0; i < packet.buff_size() && i < 48; ++i) std::fprintf(f, " %02x", packet.data()[i]);
+			std::fprintf(f, "\n");
+			std::fclose(f);
+		}
+	}
 	switch (message) {
 	case MSG_RETRY: {
 		SEND(nullptr);
@@ -1500,8 +1508,10 @@ void GenericDuel::GetResponse(DuelPlayer* dp, void* pdata, uint32_t len) {
 		};
 		if(FILE* f = std::fopen("br-server.log", "a")) {
 			const DuelPlayer* want = last_response < 2 ? cur_player[last_response] : nullptr;
-			std::fprintf(f, "response from %s (type %d) awaited %s state %d len %u%s\n", nm(dp).data(), static_cast<int>(dp->type),
+			std::fprintf(f, "response from %s (type %d) awaited %s state %d len %u%s:", nm(dp).data(), static_cast<int>(dp->type),
 						 nm(want).data(), static_cast<int>(dp->state), len, awaited ? "" : "  IGNORED");
+			for(uint32_t i = 0; i < len && i < 32; ++i) std::fprintf(f, " %02x", static_cast<uint8_t*>(pdata)[i]);
+			std::fprintf(f, "\n");
 			std::fclose(f);
 		}
 	}
