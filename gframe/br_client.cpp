@@ -317,7 +317,7 @@ void BuildTable(mdfx::TableView& v) {
 	for(auto s : nearS) add(s, false);
 	for(auto s : farS) add(s, true);
 	if(br.active_seat < 4 && br.target_seat < 4)
-		v.caption = epro::format(L"TURN {}  ·  {}  ▸  {}", di.turn, SeatName(br.active_seat), SeatName(br.target_seat));
+		v.caption = epro::format(L"TURN {}  \u00B7  {}  ATTACKS  {}", di.turn, SeatName(br.active_seat), SeatName(br.target_seat));
 	v.open = table_anim;
 	v.hoverSeat = hover_board;
 	v.hoverHit = hover_hit;
@@ -363,7 +363,7 @@ void ShowPile(uint8_t seat, uint32_t location) {
 	}
 	if(d.display_cards.empty())
 		return;
-	mainGame->wCardDisplay->setText(epro::format(L"{} · {}({})", SeatName(seat), gDataManager->GetSysString(loc_id), d.display_cards.size()).data());
+	mainGame->wCardDisplay->setText(epro::format(L"{} \u00B7 {}({})", SeatName(seat), gDataManager->GetSysString(loc_id), d.display_cards.size()).data());
 	d.ShowLocationCard();
 }
 
@@ -429,7 +429,7 @@ void OnIdle(bool my_turn) {
 		for(uint8_t s = 0; s < br.count && s < 4 && br.my_seat < 4; ++s)
 			n += s != br.my_seat && s != br.target_seat && br.seats[s].alive && !(br.teams && br.seats[s].team == br.seats[br.my_seat].team);
 		if(n)
-			mdfx::SeatToast(epro::format(L"Your turn · attacking {} · click another opponent's plate to switch", SeatName(BR().target_seat)), 0);
+			mdfx::SeatToast(epro::format(L"Your turn \u00B7 attacking {} \u00B7 click another opponent's plate to switch", SeatName(BR().target_seat)), 0);
 	}
 }
 

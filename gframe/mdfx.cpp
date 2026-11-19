@@ -1479,9 +1479,9 @@ video::SColor SeatColor(bool you, bool ally, int team, int idx) {
 std::wstring Fit(gui::CGUITTFont* f, const std::wstring& s, float maxW) {
 	if(!f || TextSize(f, s).Width <= maxW) return s;
 	std::wstring t = s;
-	while(!t.empty() && TextSize(f, t + L"…").Width > maxW) t.pop_back();
+	while(!t.empty() && TextSize(f, t + L"\u2026").Width > maxW) t.pop_back();
 	while(!t.empty() && t.back() == L' ') t.pop_back();
-	return t.empty() ? t : t + L"…";
+	return t.empty() ? t : t + L"\u2026";
 }
 // a small rounded tag: filled (badge) or outlined
 core::recti Tag(gui::CGUITTFont* f, const std::wstring& s, float x, float y, float h, video::SColor c, bool filled, float a, bool rightAlign = false) {
@@ -1621,12 +1621,13 @@ bool DrawSeatHud(const SeatHud& in, SeatHudRects& out) {
 		const float tx0 = x + ringD * 0.98f, tx1 = x + cw - ch * 0.34f;
 		const core::recti clip((s32)tx0, (s32)cy0, (s32)tx1, (s32)(cy0 + ch));
 		const float top = cy0 + ch * 0.17f;
-		const std::wstring nm = Fit(nameF, c.name, tx1 - tx0);
-		const auto nd = TextSize(nameF, nm);
-		Text(nameF, nm, tx0, top, c.alive ? video::SColor(255, 250, 240, 215) : video::SColor(255, 150, 140, 130), 0.85f, 1, &clip);
+		auto* cnf = (float)TextSize(nameF, c.name).Width <= tx1 - tx0 ? nameF : tagF;
+		const std::wstring nm = Fit(cnf, c.name, tx1 - tx0);
+		const auto nd = TextSize(cnf, nm);
+		Text(cnf, nm, tx0, top + (cnf == nameF ? 0.f : 2.f * sy), c.alive ? video::SColor(255, 250, 240, 215) : video::SColor(255, 150, 140, 130), 0.85f, 1, &clip);
 		const float rowY = top + nd.Height, gaugeY0 = cy0 + ch * 0.79f, gaugeY1 = cy0 + ch * 0.85f;
 		if(c.alive) {
-			auto* lf = FitFont((gaugeY0 - rowY) * 1.08f);
+			auto* lf = FitFont((gaugeY0 - rowY) * 0.86f);
 			const std::wstring lps = std::to_wstring(std::max(0, c.lp));
 			const auto ld = TextSize(lf, lps);
 			const float ly = rowY + (gaugeY0 - rowY - ld.Height) * 0.5f;
@@ -1663,7 +1664,7 @@ bool DrawSeatHud(const SeatHud& in, SeatHudRects& out) {
 			if(c.target)
 				tabX = (float)Tag(tagF, L"TARGET", tabX, tabY, tabH, kTargetC, true, 0.9f).LowerRightCorner.X + 4.f * sx;
 			if(c.canTarget && (c.hovered || in.targetHint)) {
-				const auto r = Tag(tagF, L"ATTACK ▸", tabX, tabY, tabH, kTargetC, c.targetHover || c.hovered, c.hovered ? 1.f : 0.6f + 0.4f * pulse);
+				const auto r = Tag(tagF, L"ATTACK", tabX, tabY, tabH, kTargetC, c.targetHover || c.hovered, c.hovered ? 1.f : 0.6f + 0.4f * pulse);
 				out.target[i] = rect; // the whole plate switches the target
 				(void)r;
 			}
@@ -1732,13 +1733,19 @@ void CardAt(const TableCtx& k, const TableCard& c, float cx, float cy, float w, 
 		Count(k, cx + w * 0.40f, cy - h * 0.42f, (uint32_t)c.materials, { 255, 236, 200, 120 });
 	// ATK / DEF strip
 	if(c.monster && !c.faceDown) {
-		const std::wstring st = c.linkMon ? epro::format(L"{} L{}", StatText(c.atk), c.link) : epro::format(L"{}/{}", StatText(c.atk), StatText(c.def));
-		const auto d = TextSize(k.smallF, st);
+		// ATK/DEF when it fits the card, else the stat that matters for its position
+		std::wstring st = c.linkMon ? epro::format(L"{} L{}", StatText(c.atk), c.link) : epro::format(L"{}/{}", StatText(c.atk), StatText(c.def));
+		auto* sf = k.tagF;
+		const float room = (c.defense ? h * s : w) * 0.98f;
+		if((float)TextSize(sf, st).Width > room)
+			st = c.linkMon ? StatText(c.atk) : StatText(c.defense ? c.def : c.atk);
+		const auto d = TextSize(sf, st);
 		const float sy0 = c.defense ? cy + h * s * 0.5f * 0.69f - d.Height : cy + h * 0.5f - d.Height - 2.f * k.sy;
-		const float bw = std::max((float)d.Width + 6.f * k.sx, w * 0.9f);
+		const float bw = std::min(room, std::max((float)d.Width + 4.f * k.sx, w * 0.9f));
 		const core::recti r((s32)(cx - bw / 2.f), (s32)(sy0 - 1.f * k.sy), (s32)(cx + bw / 2.f), (s32)(sy0 + d.Height + 1.f * k.sy));
 		drv->draw2DRectangle(col(k.a * 0.82f, { 255, 6, 7, 10 }), r);
-		Text(k.smallF, st, cx - d.Width / 2.f, sy0, col(k.a, { 255, 255, 246, 226 }), 0.f, 0);
+		const core::recti clip((s32)(cx - room / 2.f), r.UpperLeftCorner.Y, (s32)(cx + room / 2.f), r.LowerRightCorner.Y);
+		Text(sf, st, cx - d.Width / 2.f, sy0, col(k.a, { 255, 255, 246, 226 }), 0.f, 0, &clip);
 	}
 }
 void Hit(const TableCtx& k, TableHit::Kind kind, const core::recti& r, int seat, uint32_t loc = 0, uint32_t seq = 0, uint32_t code = 0) {
@@ -1819,7 +1826,7 @@ void DrawBoard(const TableCtx& k, const TableSeat& s, int idx, const core::recti
 		} else {
 			if(s.canTarget) {
 				const bool on = hov || k.in->hoverHit >= 0;
-				const auto r = badge(L"ATTACK ▸", kTargetC, true, hov ? 1.f : 0.65f + 0.35f * k.pulse);
+				const auto r = badge(L"ATTACK", kTargetC, true, hov ? 1.f : 0.65f + 0.35f * k.pulse);
 				Hit(k, TableHit::TARGET, core::recti(r.UpperLeftCorner - core::vector2di(2, 2), r.LowerRightCorner + core::vector2di(2, 2)), idx);
 				(void)on;
 			}
@@ -1935,7 +1942,7 @@ void DrawBoard(const TableCtx& k, const TableSeat& s, int idx, const core::recti
 	if(!s.alive) {
 		drv->draw2DRectangle(col(k.a * 0.55f, { 255, 0, 0, 0 }), core::recti((s32)x0 + 1, (s32)zy0, (s32)x1 - 1, (s32)zy1));
 		static const wchar_t* pl[]{ L"", L"1ST", L"2ND", L"3RD", L"4TH" };
-		const std::wstring t = epro::format(L"ELIMINATED · {}", s.placement >= 0 && s.placement < 5 ? pl[s.placement] : L"");
+		const std::wstring t = epro::format(L"ELIMINATED \u00B7 {}", s.placement >= 0 && s.placement < 5 ? pl[s.placement] : L"");
 		auto* f = FitFont(std::min(28.f * k.sy, (zy1 - zy0) * 0.2f));
 		const auto d = TextSize(f, t);
 		Text(f, t, (x0 + x1 - d.Width) / 2.f, (zy0 + zy1 - d.Height) / 2.f, col(k.a, { 255, 230, 120, 100 }), k.a, 2);
@@ -1967,13 +1974,13 @@ void DrawTable(const TableView& in, std::vector<TableHit>& hits) {
 	const float titleH = 18.f * k.sy, pad = 7.f * k.u;
 	{
 		const float ty = ay0 + 4.f * k.sy;
-		const std::wstring title = L"BATTLE ROYAL · TABLE";
+		const std::wstring title = L"BATTLE ROYAL \u00B7 TABLE";
 		const auto td = TextSize(k.tagF, title);
 		Text(k.tagF, title, ax0 + pad + 2.f * k.sx, ty + (titleH - td.Height) / 2.f, col(k.a, { 255, 240, 214, 140 }), k.a * 0.8f, 1);
-		const std::wstring hint = L"hover a card to read it · click a pile to list it · Tab or right-click to close";
+		const std::wstring hint = L"hover a card to read it \u00B7 click a pile to list it \u00B7 Tab or right-click to close";
 		const auto hd = TextSize(k.smallF, hint);
 		Text(k.smallF, hint, ax0 + pad + td.Width + 14.f * k.sx, ty + (titleH - hd.Height) / 2.f, col(k.a * 0.55f, { 255, 220, 210, 190 }), 0.f, 0);
-		const std::wstring ct = L"CLOSE  ✕";
+		const std::wstring ct = L"CLOSE";
 		const auto cd = TextSize(k.tagF, ct);
 		const float bw = cd.Width + 18.f * k.sx, bx = ax1 - pad - bw;
 		const core::recti r((s32)bx, (s32)ty, (s32)(bx + bw), (s32)(ty + titleH));
