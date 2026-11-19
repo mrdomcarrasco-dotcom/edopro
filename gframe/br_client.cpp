@@ -24,6 +24,7 @@
 #include "windbot.h"
 #include "windbot_panel.h"
 #include "CGUIImageButton/CGUIImageButton.h"
+#include "CGUITTFont/CGUITTFont.h"
 
 namespace ygo {
 namespace brc {
