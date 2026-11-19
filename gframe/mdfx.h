@@ -44,7 +44,13 @@ float PopScale(float from, float t, float dur);
 
 // --- triggers (duel thread, gMutex held); the int ones return 60 fps frames to WaitFrameSignal on ---
 Cutin CutinFor(uint32_t code);
-int StartCutin(Cutin kind, uint32_t code, bool opponent);
+// zone: the summoned card's position; the cut-in closes onto its row
+int StartCutin(Cutin kind, uint32_t code, bool opponent, const irr::core::vector3df* zone = nullptr, bool special = true);
+// MSG_MOVE: remembers where a monster came from and which materials just went (Fusion / Synchro / Xyz / Link / Ritual)
+void NoteMove(uint32_t code, uint32_t fromLoc, uint32_t toLoc, uint32_t reason);
+// a special summon that is not an ace cut-in: the summon-method presentation (~1.55 s) when it was a Fusion, Synchro,
+// Xyz, Link, Ritual or Pendulum Summon, else 0
+int SummonMethod(uint32_t code, const irr::core::vector3df& zone, bool opponent);
 int ExodiaWin();
 // duel end: VICTORY / DEFEAT title over rays (outcome 1 = you win, 2 = you lose); 0 = not shown, use stock text
 int Result(int outcome, const std::wstring& reason);

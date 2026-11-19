@@ -39,6 +39,8 @@ video::ITexture* tStar = nullptr;    // 5-point level star
 video::ITexture* tShard = nullptr;   // angular shard
 video::ITexture* tSeal = nullptr;    // circle + five-point star
 video::ITexture* tLink = nullptr;    // chain link (an oval ring)
+video::ITexture* tVig = nullptr;     // screen vignette: clear centre, dark edges (alpha)
+video::ITexture* tArrow = nullptr;   // Link arrow chevron, pointing right
 bool enabled = true;
 std::map<uint32_t, Cutin> listed;    // mdfx.conf
 std::map<uint32_t, video::ITexture*> artCache;
@@ -146,6 +148,14 @@ void BuildTextures() {
 		const float d = (std::sqrt(u * u + v * v) - 0.72f) / 0.16f;
 		return std::exp(-d * d);
 	});
+	tVig = MakeTex("mdfx_vig", 256, 256, [](float u, float v) {
+		return smooth(0.62f, 1.42f, std::sqrt(u * u * 0.85f + v * v));
+	});
+	tArrow = MakeTex("mdfx_arrow", 64, 64, [](float u, float v) {
+		// a filled chevron: the triangle u in [-0.6, 0.75], |v| < (0.75 - u) * 0.8, with a soft edge
+		const float edge = (0.75f - u) * 0.8f - std::fabs(v);
+		return u < -0.6f ? 0.f : clamp01(edge * 24.f);
+	});
 }
 
 // --- drawing helpers -------------------------------------------------------------------------
@@ -201,6 +211,28 @@ void Quad(video::ITexture* tex, core::vector2df c, float w, float h, float rot, 
 	if(!tex) return;
 	const auto t = tex->getOriginalSize();
 	Quad(tex, core::rect<s32>(0, 0, t.Width, t.Height), c, w, h, rot, color, additive);
+}
+// an unrotated quad cut to the horizontal band [top, bot] (the cut-in shutter), texture coords cropped to match
+void BandQuad(video::ITexture* tex, const core::rect<s32>& src, core::vector2df c, float w, float h, float top, float bot,
+			  video::SColor color, bool additive) {
+	if(!tex || h <= 0.f) return;
+	const float y0 = c.Y - h / 2.f, y1 = c.Y + h / 2.f;
+	const float a = std::max(y0, top), b = std::min(y1, bot);
+	if(b <= a) return;
+	const float sh = (float)src.getHeight();
+	const s32 sy0 = src.UpperLeftCorner.Y + (s32)std::floor((a - y0) / h * sh);
+	const s32 sy1 = src.UpperLeftCorner.Y + (s32)std::ceil((b - y0) / h * sh);
+	Quad(tex, core::rect<s32>(src.UpperLeftCorner.X, sy0, src.LowerRightCorner.X, std::max(sy0 + 1, sy1)), { c.X, (a + b) / 2.f }, w, b - a, 0.f, color, additive);
+}
+void BandQuad(video::ITexture* tex, core::vector2df c, float w, float h, float top, float bot, video::SColor color, bool additive) {
+	if(!tex) return;
+	const auto t = tex->getOriginalSize();
+	BandQuad(tex, core::rect<s32>(0, 0, t.Width, t.Height), c, w, h, top, bot, color, additive);
+}
+// rgb multiplied by k (alpha 255): a darker / dimmer copy of a picture through the vertex colour
+video::SColor gain(float k) {
+	const u32 v = (u32)(clamp01(k) * 255.f);
+	return video::SColor(255, v, v, v);
 }
 // a glowing line segment (lightning, tendrils)
 void Line(core::vector2df a, core::vector2df b, float width, video::SColor c) {
@@ -377,7 +409,7 @@ struct PendingNumber { std::wstring text; int player = 0, frames = 0; bool valid
 bool DrawLpNumber(const std::wstring& text, int player, int framesLeft);
 
 struct Overlay {
-	enum Kind : uint8_t { NONE, CUTIN, EXODIA, SEAL, CHAIN, RESOLVE, BANNER, RESULT } kind = NONE;
+	enum Kind : uint8_t { NONE, CUTIN, EXODIA, SEAL, CHAIN, RESOLVE, BANNER, RESULT, METHOD } kind = NONE;
 	float t = 0.f, dur = 0.f;
 	uint32_t code = 0;
 	Cutin cut = Cutin::NONE;
@@ -392,7 +424,47 @@ struct Overlay {
 	video::SColor tint, plate;
 	float acc = 0.f;
 	std::vector<std::pair<core::vector2df, core::vector2df>> bolts;
+	// the summoned card's zone: the cut-in shutter closes onto its row, the method card flies into it
+	bool hasZone = false;
+	core::vector3df zone;
+	core::vector2df zoneScreen;
+	int method = 0;         // Method: summon-method presentation / cut-in label
+	uint32_t markers = 0;   // Link arrows
 } ov;
+
+// how a monster arrived: a summon-method presentation plays for these (Master Duel animates every one)
+enum Method : int { M_NONE, M_FUSION, M_SYNCHRO, M_XYZ, M_LINK, M_RITUAL, M_PENDULUM };
+const wchar_t* MethodName(int m) {
+	switch(m) {
+	case M_FUSION: return L"FUSION SUMMON";
+	case M_SYNCHRO: return L"SYNCHRO SUMMON";
+	case M_XYZ: return L"XYZ SUMMON";
+	case M_LINK: return L"LINK SUMMON";
+	case M_RITUAL: return L"RITUAL SUMMON";
+	case M_PENDULUM: return L"PENDULUM SUMMON";
+	default: return L"";
+	}
+}
+// palette per method: a = main light, b = accent
+void MethodColors(int m, video::SColor& a, video::SColor& b) {
+	switch(m) {
+	case M_FUSION: a = { 255, 168, 96, 255 }; b = { 255, 255, 150, 70 }; break;
+	case M_SYNCHRO: a = { 255, 205, 240, 255 }; b = { 255, 120, 255, 175 }; break;
+	case M_XYZ: a = { 255, 255, 205, 110 }; b = { 255, 120, 110, 220 }; break;
+	case M_LINK: a = { 255, 80, 175, 255 }; b = { 255, 255, 100, 60 }; break;
+	case M_RITUAL: a = { 255, 140, 205, 255 }; b = { 255, 230, 245, 255 }; break;
+	case M_PENDULUM: a = { 255, 70, 230, 205 }; b = { 255, 235, 90, 205 }; break;
+	default: a = { 255, 255, 255, 255 }; b = a; break;
+	}
+}
+// materials and origins noted from MSG_MOVE, consumed by the next summon
+struct PendingSummon {
+	std::vector<uint32_t> mats;
+	uint32_t reason = 0;
+	float time = -1e9f;
+	std::map<uint32_t, uint32_t> from; // card code -> the location it came from into a Monster Zone
+	float lastPendulum = -1e9f;
+} pend;
 
 video::SColor AttributeTint(uint32_t code) {
 	const auto* d = gDataManager->GetCardData(code);
@@ -487,6 +559,7 @@ Cutin CutinFor(uint32_t code) {
 namespace {
 // authored summon scenes: a 24 fps JPEG sequence per card, rendered from our own keyframe + image-to-video
 constexpr float SCENE_FPS = 24.f;
+constexpr float SCENE_SPEED = 1.15f; // the takes play a touch faster: livelier and shorter
 std::map<uint32_t, int> sceneCount;
 epro::path_string ScenePath(uint32_t code, int frame) {
 	return epro::format(EPRO_TEXT("./pics/mdfx/scene/{}/{:04d}.jpg"), code, frame);
@@ -508,31 +581,135 @@ void DropSceneTex() {
 	sceneTexFrame = -1;
 	sceneTexCode = 0;
 }
-// draw frame n of an authored scene full screen (cover), alpha a; streams one texture at a time
-void SceneFrame(uint32_t code, int frame, float a) {
-	if(sceneTexCode != code || sceneTexFrame != frame) {
-		auto* next = LoadFile(ScenePath(code, frame));
-		if(next) {
-			if(sceneTex && sceneTex != next) drv->removeTexture(sceneTex);
-			sceneTex = next;
-			sceneTexFrame = frame;
-			sceneTexCode = code;
+// The image-to-video takes run hot: Ra / Blue-Eyes / Exodia average 105-150 luma with gold highlights clipped at 255,
+// shown full screen straight after a dark board (Dominic: "Obelisk hurt my eyes"). Every frame of a scene goes through
+// the same curve, so nothing pumps: an exposure that brings the scene's brightest sampled frame to ~78 mean, then a
+// soft shoulder that rolls highlights off toward ~208 instead of clipping to white.
+std::map<uint32_t, std::vector<u8>> sceneLut;
+float MeanLuma(video::IImage* img) {
+	const auto d = img->getDimension();
+	double sum = 0.0;
+	int n = 0;
+	for(u32 y = 4; y < d.Height; y += 9)
+		for(u32 x = 4; x < d.Width; x += 9) {
+			const auto c = img->getPixel(x, y);
+			sum += 0.2126 * c.getRed() + 0.7152 * c.getGreen() + 0.0722 * c.getBlue();
+			++n;
+		}
+	return n ? (float)(sum / n) : 0.f;
+}
+const std::vector<u8>& SceneLut(uint32_t code, int frames) {
+	auto it = sceneLut.find(code);
+	if(it != sceneLut.end()) return it->second;
+	float mean = 0.f;
+	for(int f : { 1, std::max(1, frames / 2), std::max(1, frames - 4) }) {
+		const auto file = ScenePath(code, f);
+		if(auto* img = drv->createImageFromFile({ file.data(), static_cast<u32>(file.size()) })) {
+			mean = std::max(mean, MeanLuma(img));
+			img->drop();
 		}
 	}
+	const float exposure = mean > 1.f ? std::min(1.f, std::max(0.56f, 78.f / mean)) : 0.9f;
+	std::vector<u8> lut(256);
+	constexpr float knee = 0.56f, white = 0.82f;
+	for(int i = 0; i < 256; ++i) {
+		float y = i / 255.f * exposure;
+		if(y > knee) y = knee + (white - knee) * (1.f - std::exp(-(y - knee) / (white - knee)));
+		lut[i] = (u8)std::lround(clamp01(y) * 255.f);
+	}
+	return sceneLut[code] = std::move(lut);
+}
+void ToneMap(video::IImage* img, const std::vector<u8>& lut) {
+	const auto fmt = img->getColorFormat();
+	if(fmt != video::ECF_R8G8B8 && fmt != video::ECF_A8R8G8B8) return;
+	const u32 bpp = img->getBytesPerPixel(), pitch = img->getPitch();
+	const auto d = img->getDimension();
+	auto* data = static_cast<u8*>(img->lock());
+	if(!data) return;
+	for(u32 y = 0; y < d.Height; ++y) {
+		u8* row = data + y * pitch;
+		for(u32 x = 0; x < d.Width; ++x) {
+			u8* p = row + x * bpp;
+			p[0] = lut[p[0]]; p[1] = lut[p[1]]; p[2] = lut[p[2]]; // ARGB in memory is B,G,R,A: the alpha byte is left alone
+		}
+	}
+	img->unlock();
+}
+// make frame n of a scene the current scene texture (tone-mapped); streams one texture at a time
+video::ITexture* SceneTexture(uint32_t code, int frame) {
+	if(sceneTex && sceneTexCode == code && sceneTexFrame == frame) return sceneTex;
+	const auto file = ScenePath(code, frame);
+	auto* img = Utils::FileExists(file) ? drv->createImageFromFile({ file.data(), static_cast<u32>(file.size()) }) : nullptr;
+	if(!img) return sceneTex;
+	ToneMap(img, SceneLut(code, SceneFrames(code)));
+	const auto name = epro::format(EPRO_TEXT("mdfx:scene:{}:{}"), code, frame);
+	auto* next = drv->addTexture({ name.data(), static_cast<u32>(name.size()) }, img);
+	img->drop();
+	if(next) {
+		if(sceneTex && sceneTex != next) drv->removeTexture(sceneTex);
+		sceneTex = next;
+		sceneTexFrame = frame;
+		sceneTexCode = code;
+	}
+	return sceneTex;
+}
+// draw frame n of an authored scene full screen (cover), alpha a
+void SceneFrame(uint32_t code, int frame, float a) {
+	SceneTexture(code, frame);
 	if(!sceneTex || a <= 0.f) return;
 	const auto ts = sceneTex->getOriginalSize();
 	const float W = SW(), H = SH();
 	const float k = std::max(W / ts.Width, H / ts.Height);
 	Quad(sceneTex, Center(), ts.Width * k, ts.Height * k, 0.f, col(a, { 255, 255, 255, 255 }), false);
 }
+
+// the summon method of a monster now arriving in a Monster Zone (MSG_SPSUMMONING), from what MSG_MOVE noted
+int DetectMethod(uint32_t code, bool consume) {
+	const auto* d = gDataManager->GetCardData(code);
+	if(!d) return M_NONE;
+	uint32_t from = 0;
+	if(auto it = pend.from.find(code); it != pend.from.end()) from = it->second;
+	const bool fresh = clockMs - pend.time < 4000.f && clockMs >= pend.time;
+	int m = M_NONE;
+	if(from & LOCATION_EXTRA) {
+		if(d->type & TYPE_LINK) m = M_LINK;
+		else if(d->type & TYPE_XYZ) m = M_XYZ;
+		else if(d->type & TYPE_SYNCHRO) m = M_SYNCHRO;
+		else if(d->type & TYPE_FUSION) m = M_FUSION;
+		else if(d->type & TYPE_PENDULUM) m = M_PENDULUM; // a face-up Pendulum from the Extra Deck
+	}
+	if(m == M_NONE && (d->type & TYPE_RITUAL) && fresh && (pend.reason & REASON_RITUAL)) m = M_RITUAL;
+	if(m == M_NONE && (d->type & TYPE_PENDULUM) && (from & LOCATION_HAND) && !(fresh && !pend.mats.empty())) m = M_PENDULUM;
+	if(consume) pend.from.erase(code);
+	return m;
+}
 } // namespace
 
-int StartCutin(Cutin kind, uint32_t code, bool opponent) {
+void NoteMove(uint32_t code, uint32_t fromLoc, uint32_t toLoc, uint32_t reason) {
+	if(!Enabled()) return;
+	constexpr uint32_t methods = REASON_FUSION | REASON_SYNCHRO | REASON_RITUAL | REASON_XYZ | REASON_LINK;
+	const bool material = ((reason & REASON_MATERIAL) && (reason & methods)) || ((toLoc & LOCATION_OVERLAY) && !(fromLoc & LOCATION_OVERLAY));
+	if(material) {
+		if(clockMs - pend.time > 4000.f || clockMs < pend.time) { pend.mats.clear(); pend.reason = 0; }
+		if(code && pend.mats.size() < 6) pend.mats.push_back(code);
+		pend.reason |= reason;
+		pend.time = clockMs;
+	}
+	if((toLoc & LOCATION_MZONE) && !(toLoc & LOCATION_OVERLAY) && !(fromLoc & LOCATION_MZONE)) {
+		if(pend.from.size() > 24) pend.from.clear();
+		pend.from[code] = fromLoc;
+	}
+}
+
+int StartCutin(Cutin kind, uint32_t code, bool opponent, const core::vector3df* zone, bool special) {
 	if(!Enabled() || kind == Cutin::NONE) return 0;
+	const int method = special ? DetectMethod(code, true) : M_NONE;
 	ov = Overlay{};
 	ov.code = code;
 	ov.cut = kind;
 	ov.opp = opponent;
+	ov.method = method;
+	if(zone) { ov.hasZone = true; ov.zone = *zone; }
 	{ const auto nm = gDataManager->GetName(code); ov.name.assign(nm.data(), nm.size()); }
 	const auto paren = ov.name.find(L" (");
 	if(paren != std::wstring::npos) ov.name.erase(paren);
@@ -544,21 +721,25 @@ int StartCutin(Cutin kind, uint32_t code, bool opponent) {
 		return Frames(ov.dur);
 	}
 	ov.kind = Overlay::CUTIN;
-	ov.dur = 1450.f;
+	// procedural scene: 0-420 the shutter opens, MD's 1.4 s of beats, then it closes onto the zone
+	ov.dur = 1850.f;
+	ov.plateStart = 380.f;
 	{
 		uint32_t sc = code;
 		int frames = SceneFrames(sc);
 		if(!frames) { sc = BaseCode(code); if(sc != code) frames = SceneFrames(sc); }
 		if(frames > 0) {
+			// authored scene: about 2.7 s of the take (was the whole 5 s clip), the plate early instead of at the end
 			ov.video = frames;
 			ov.videoCode = sc;
-			ov.dur = frames * 1000.f / SCENE_FPS + 350.f;
-			ov.plateStart = std::max(0.f, ov.dur - 1900.f);
+			ov.dur = std::min(2700.f, frames * 1000.f / (SCENE_FPS * SCENE_SPEED));
+			ov.plateStart = 560.f;
 		}
 	}
 	if(const auto* d = gDataManager->GetCardData(code)) {
-		ov.stars = (int)(d->level & 0xff);
-		ov.stats = epro::format(L"ATK {}    DEF {}", StatText(d->attack), StatText(d->defense));
+		ov.stars = (d->type & TYPE_LINK) ? 0 : (int)(d->level & 0xff);
+		ov.stats = (d->type & TYPE_LINK) ? epro::format(L"ATK {}    LINK-{}", StatText(d->attack), d->level & 0xff)
+										  : epro::format(L"ATK {}    DEF {}", StatText(d->attack), StatText(d->defense));
 	}
 	switch(kind) {
 	case Cutin::OBELISK: ov.tint = { 255, 110, 170, 255 }; ov.plate = { 255, 20, 40, 110 }; break;
@@ -571,6 +752,37 @@ int StartCutin(Cutin kind, uint32_t code, bool opponent) {
 		if(!(ov.video > 0 && PlayFx(god ? "god" : "ace")))
 			PlayFx("cutin");
 	}
+	return Frames(ov.dur);
+}
+
+int SummonMethod(uint32_t code, const core::vector3df& zone, bool opponent) {
+	if(!Enabled()) return 0;
+	const int m = DetectMethod(code, true);
+	if(m == M_NONE) return 0;
+	// a Pendulum Summon brings several monsters at once: the presentation plays for the first one only
+	if(m == M_PENDULUM) {
+		const bool batch = clockMs - pend.lastPendulum < 2500.f && clockMs >= pend.lastPendulum;
+		pend.lastPendulum = clockMs;
+		if(batch) return 0;
+	}
+	ov = Overlay{};
+	ov.kind = Overlay::METHOD;
+	ov.method = m;
+	ov.code = code;
+	ov.opp = opponent;
+	ov.hasZone = true;
+	ov.zone = zone;
+	ov.dur = 1550.f;
+	if(clockMs - pend.time < 4000.f && clockMs >= pend.time) ov.codes = pend.mats;
+	pend.mats.clear();
+	pend.reason = 0;
+	if(const auto* d = gDataManager->GetCardData(code)) {
+		ov.stars = (int)(d->level & 0xff);
+		ov.markers = d->link_marker;
+	}
+	{ const auto nm = gDataManager->GetName(code); ov.name.assign(nm.data(), nm.size()); }
+	static const char* sfx[] = { "", "summon_fusion", "summon_synchro", "summon_xyz", "summon_link", "summon_ritual", "summon_pendulum" };
+	PlayFx(sfx[m]); // duelclient already played the special-summon sound
 	return Frames(ov.dur);
 }
 
@@ -743,10 +955,11 @@ void DrawFx(scene::ISceneCollisionManager* coll) {
 			break;
 		}
 		case Fx::SUMMON_FLASH: {
-			// white silhouette ~100 ms, then cyan, then back to the art over ~400 ms
-			const float a = t < 100.f ? 1.f : 1.f - smooth(100.f, 500.f, t);
-			const video::SColor c = lerpc({ 255, 255, 255, 255 }, { 255, 90, 220, 255 }, smooth(60.f, 200.f, t));
-			Quad(tGlow, at, 200.f * s, 250.f * s, 0.f, addc(a * 1.3f, c), true);
+			// MD's white-then-cyan special summon flash, as a soft bloom: 70 ms ramp to a capped peak, cyan, gone by 500 ms
+			const float a = smooth(0.f, 70.f, t) * (1.f - smooth(110.f, 500.f, t));
+			const video::SColor c = lerpc({ 255, 236, 244, 255 }, { 255, 90, 200, 255 }, smooth(60.f, 220.f, t));
+			Quad(tGlow, at, 190.f * s, 240.f * s, 0.f, addc(a * 0.62f, c), true);
+			Quad(tRing, at, (120.f + 120.f * outCubic(t / 500.f)) * s, (150.f + 150.f * outCubic(t / 500.f)) * s, 0.f, addc(a * 0.35f, c), true);
 			break;
 		}
 		case Fx::DAMAGE_RING: {
@@ -882,134 +1095,175 @@ void ChainStack(const std::vector<uint32_t>& codes, int upto, float a, float app
 	}
 }
 
-// ---------------------------------------------------------------- 1.4 s ace / god summon scene
+// ---------------------------------------------------------------- ace / god summon scene
+// The cut-in is a shutter inside the duel, not a video dropped over it: the board dims, the scene opens from a thin
+// band across the middle (exposure rising from dark, never a white flash), holds with a slow push-in under cinematic
+// edge shading, and closes back down onto the summoned card's row, where the card then lands and settles.
+struct Shutter { float top, bot, cy, open, close, dim; };
+Shutter CutinShutter(float t, float D) {
+	const float H = SH();
+	Shutter sh;
+	sh.open = outQuint(clamp01((t - 30.f) / 430.f));
+	sh.close = smooth(D - 440.f, D - 30.f, t);
+	const float zy = ov.hasZone ? ov.zoneScreen.Y : H * 0.5f;
+	sh.cy = H * 0.5f + (zy - H * 0.5f) * sh.close * sh.close;
+	const float half = H * 0.5f * (0.05f + 0.95f * sh.open) * (1.f - sh.close);
+	sh.top = sh.cy - half;
+	sh.bot = sh.cy + half;
+	sh.dim = smooth(0.f, 240.f, t) * (1.f - smooth(D - 260.f, D, t));
+	return sh;
+}
+void ShutterEdges(const Shutter& sh, video::SColor tint) {
+	const float W = SW(), H = SH(), s = S();
+	if(sh.bot - sh.top < 1.f) return;
+	// dark gradient inside both edges (cinematic bars that travel with the shutter) and a vignette
+	const float lb = std::min(0.13f * H, (sh.bot - sh.top) * 0.35f);
+	const auto edge = col(0.88f, { 255, 0, 0, 0 }), clear = col(0.f, { 255, 0, 0, 0 });
+	drv->draw2DRectangle(core::rect<s32>(0, (s32)sh.top, (s32)W, (s32)(sh.top + lb)), edge, edge, clear, clear);
+	drv->draw2DRectangle(core::rect<s32>(0, (s32)(sh.bot - lb), (s32)W, (s32)sh.bot), clear, clear, edge, edge);
+	BandQuad(tVig, Center(), W * 1.02f, H * 1.02f, sh.top, sh.bot, col(0.75f, { 255, 0, 0, 0 }), false);
+	// thin gold blades on the shutter edges while it moves (hidden off-screen while it is fully open)
+	const float blade = 1.f - 0.85f * sh.open * (1.f - sh.close);
+	if(blade > 0.02f) {
+		const s32 bw = std::max<s32>(1, (s32)(1.5f * s));
+		FillRect(0, (s32)sh.top - bw, (s32)W, (s32)sh.top + bw, col(0.75f * blade, { 255, 236, 206, 140 }));
+		FillRect(0, (s32)sh.bot - bw, (s32)W, (s32)sh.bot + bw, col(0.75f * blade, { 255, 236, 206, 140 }));
+		Quad(tStreak, { W * 0.5f, sh.top }, W * 1.1f, 14.f * s, 0.f, addc(0.22f * blade, tint), true);
+		Quad(tStreak, { W * 0.5f, sh.bot }, W * 1.1f, 14.f * s, 0.f, addc(0.22f * blade, tint), true);
+	}
+}
 void DrawCutin() {
 	const float t = ov.t, D = ov.dur, s = S();
 	const float W = SW(), H = SH();
 	const auto c = Center();
-	const float out = smooth(D - 150.f, D, t);  // 100-150 ms cross-dissolve
-	const float live = 1.f - out;
+	const Shutter sh = CutinShutter(t, D);
+	const float live = sh.open * (1.f - sh.close);
+	// the board stays, dimmed and cooled
+	FillRect(0, 0, (s32)W, (s32)H, col(0.6f * sh.dim, { 255, 4, 6, 14 }));
 	if(ov.video > 0) {
-		// authored scene: stream the frame for this moment, full screen (cover), fading in from the board
-		const int frame = std::min(ov.video, 1 + (int)(t * SCENE_FPS / 1000.f));
-		if(sceneTexCode != ov.videoCode || sceneTexFrame != frame) {
-			auto* next = LoadFile(ScenePath(ov.videoCode, frame));
-			if(next) {
-				if(sceneTex && sceneTex != next) drv->removeTexture(sceneTex);
-				sceneTex = next;
-				sceneTexFrame = frame;
-				sceneTexCode = ov.videoCode;
-			}
+		// authored scene, tone-mapped (SceneLut), exposure rising from dark as the shutter opens
+		const int frame = std::min(ov.video, 1 + (int)(t * SCENE_FPS * SCENE_SPEED / 1000.f));
+		auto* tex = SceneTexture(ov.videoCode, frame);
+		if(tex) {
+			const auto ts = tex->getOriginalSize();
+			const float cover = std::max(W / ts.Width, H / ts.Height);
+			const float k = cover * (1.07f - 0.07f * outCubic(t / 900.f)) * (1.f + 0.025f * t / D);
+			const float exposure = (0.3f + 0.7f * smooth(0.f, 480.f, t)) * (1.f - 0.55f * sh.close) * 0.94f;
+			BandQuad(tex, c, ts.Width * k, ts.Height * k, sh.top, sh.bot, gain(exposure), false);
 		}
-		const float in = smooth(0.f, 180.f, t), outv = smooth(D - 280.f, D, t);
-		const float a = in * (1.f - outv);
-		FillRect(0, 0, (s32)W, (s32)H, col(0.85f * a, { 255, 0, 0, 0 }));
-		if(sceneTex) {
-			const auto ts = sceneTex->getOriginalSize();
-			const float k = std::max(W / ts.Width, H / ts.Height) * (1.f + 0.02f * (1.f - in));
-			Quad(sceneTex, c, ts.Width * k, ts.Height * k, 0.f, col(a, { 255, 255, 255, 255 }), false);
-		}
-		// letterbox vignette top and bottom
-		const s32 lb = (s32)(0.075f * H);
-		const auto edge = col(0.9f * a, { 255, 0, 0, 0 }), clear = col(0.f, { 255, 0, 0, 0 });
-		drv->draw2DRectangle(core::rect<s32>(0, 0, (s32)W, lb), edge, edge, clear, clear);
-		drv->draw2DRectangle(core::rect<s32>(0, (s32)H - lb, (s32)W, (s32)H), clear, clear, edge, edge);
 	} else {
-	// the board stays visible, darkened ~70% and tinted
-	FillRect(0, 0, (s32)W, (s32)H, col(0.72f * live, { 255, 6, 8, 16 }));
-	Quad(tGlow, c, W * 1.3f, H * 1.6f, 0.f, addc(0.35f * live, ov.tint), true);
-	// radial speed lines converging on the centre, 400-1300
-	const float lines = window(t, 380.f, D - 100.f, 120.f, 200.f);
-	for(int i = 0; i < 28; ++i) {
-		const float ang = hash(i) * 2.f * PI;
-		const float r0 = (0.42f + 0.25f * hash(i + 40)) * W, len = (0.18f + 0.2f * hash(i + 80)) * W;
-		const float drift = std::fmod(t * 0.0006f + hash(i + 120), 1.f);
-		const float r = r0 - drift * 0.12f * W;
-		const core::vector2df dir(std::cos(ang), std::sin(ang));
-		Quad(tStreak, c + dir * (r + len * 0.5f), len, (6.f + 8.f * hash(i + 3)) * s, ang, col(lines * 0.55f, { 255, 0, 0, 0 }), false);
-	}
-	// bokeh orbs drifting at the left and right edges
-	for(int i = 0; i < 10; ++i) {
-		const float side = i % 2 ? 1.f : -1.f;
-		const float x = c.X + side * (0.36f + 0.1f * hash(i + 7)) * W;
-		const float y = H * (1.1f - std::fmod(hash(i + 11) + t * 0.00008f * (1.f + hash(i)), 1.2f));
-		const float r = (40.f + 70.f * hash(i + 5)) * s;
-		Quad(tGlow, { x, y }, r, r, 0.f, addc(lines * 0.45f, { 255, 80, 170, 255 }), true);
-	}
-	// the illustration: ~70% of screen height, pushing in 0.85 -> 1.0, slow parallax drift
-	const auto illo = Illustration(ov.code);
-	auto* art = illo.first;
-	if(art) {
-		const float push = 0.85f + 0.15f * outCubic(t / (D - 150.f));
-		const float h = 0.70f * H * push, w = h;
-		const core::vector2df p = c + core::vector2df(t * 0.012f * s, -0.04f * H);
-		Quad(tGlow, p, w * 1.5f, h * 1.5f, 0.f, addc(0.6f * live, ov.tint), true);
-		Quad(art, illo.second, p, w, h, 0.f, col(live, { 255, 255, 255, 255 }), false);
-		// tendrils of energy whipping in from the edges, 100-300 ms
-		if(t > 100.f && t < 420.f) {
-			const float k = clamp01((t - 100.f) / 200.f);
+		// procedural: the illustration itself, enlarged and softened, is the backdrop (a tinted field, never black)
+		const auto illo = Illustration(ov.code);
+		if(auto* art = illo.first) {
+			const float bg = 1.25f * W;
 			for(int i = 0; i < 6; ++i) {
-				const float a0 = hash(i + 200) * 2.f * PI;
-				core::vector2df prev = p + core::vector2df(std::cos(a0), std::sin(a0)) * (0.75f * W);
-				for(int seg = 1; seg <= 10; ++seg) {
-					const float u = seg / 10.f;
-					if(u > k) break;
-					const float rr = (0.75f - 0.55f * u) * W;
-					const float aa = a0 + 1.4f * u * (i % 2 ? 1.f : -1.f);
-					const core::vector2df q = p + core::vector2df(std::cos(aa), std::sin(aa)) * rr;
-					Line(prev, q, 7.f * s, addc((1.f - smooth(300.f, 420.f, t)) * 0.7f, { 255, 220, 210, 120 }));
-					prev = q;
-				}
+				const float ang = i * PI / 3.f, r = 14.f * s;
+				BandQuad(art, illo.second, c + core::vector2df(std::cos(ang) * r, std::sin(ang) * r), bg, bg, sh.top, sh.bot,
+						 col(0.3f, { 255, 120, 120, 132 }), false);
 			}
 		}
-		// lightning crawling over the art at ~300-400 and ~1000-1060 ms
-		const bool bolt = (t > 300.f && t < 420.f) || (t > 1000.f && t < 1070.f);
-		if(bolt) {
-			if(ov.acc > 33.f || ov.bolts.empty()) {
-				ov.acc = 0.f;
-				ov.bolts.clear();
-				for(int b = 0; b < 3; ++b) {
-					core::vector2df q = p + core::vector2df(frand(-0.5f, 0.5f) * w, frand(-0.5f, 0.5f) * h);
-					const float dir = frand(0.f, 2.f * PI);
-					for(int seg = 0; seg < 9; ++seg) {
-						const float da = dir + frand(-0.9f, 0.9f);
-						const core::vector2df n = q + core::vector2df(std::cos(da), std::sin(da)) * (frand(18.f, 42.f) * s);
-						ov.bolts.push_back({ q, n });
-						q = n;
+		BandQuad(tGlow, c, W * 1.3f, H * 1.6f, sh.top, sh.bot, col(0.22f * live, ov.tint), false);
+		// beats run 200 ms later than MD's (the shutter needs the first 420 ms)
+		const float bt = t - 200.f;
+		// radial speed lines converging on the centre
+		const float lines = window(bt, 380.f, D - 600.f, 160.f, 260.f) * live;
+		for(int i = 0; i < 28; ++i) {
+			const float ang = hash(i) * 2.f * PI;
+			const float r0 = (0.42f + 0.25f * hash(i + 40)) * W, len = (0.18f + 0.2f * hash(i + 80)) * W;
+			const float drift = std::fmod(t * 0.0006f + hash(i + 120), 1.f);
+			const float r = r0 - drift * 0.12f * W;
+			const core::vector2df dir(std::cos(ang), std::sin(ang));
+			const core::vector2df at = c + dir * (r + len * 0.5f);
+			if(at.Y < sh.top || at.Y > sh.bot) continue;
+			Quad(tStreak, at, len, (5.f + 7.f * hash(i + 3)) * s, ang, col(lines * 0.5f, { 255, 0, 0, 0 }), false);
+		}
+		// bokeh orbs drifting at the left and right edges
+		for(int i = 0; i < 10; ++i) {
+			const float side = i % 2 ? 1.f : -1.f;
+			const float x = c.X + side * (0.36f + 0.1f * hash(i + 7)) * W;
+			const float y = H * (1.1f - std::fmod(hash(i + 11) + t * 0.00008f * (1.f + hash(i)), 1.2f));
+			if(y < sh.top || y > sh.bot) continue;
+			const float r = (40.f + 70.f * hash(i + 5)) * s;
+			Quad(tGlow, { x, y }, r, r, 0.f, addc(lines * 0.22f, ov.tint), true);
+		}
+		// the illustration: ~70% of screen height, pushing in 0.88 -> 1.0, slow parallax drift
+		const auto illo2 = Illustration(ov.code);
+		if(auto* art = illo2.first) {
+			const float push = 0.88f + 0.12f * outCubic(t / (D - 300.f));
+			const float h = 0.70f * H * push, w = h;
+			const core::vector2df p = c + core::vector2df(t * 0.010f * s, -0.04f * H);
+			BandQuad(tGlow, p, w * 1.45f, h * 1.45f, sh.top, sh.bot, addc(0.2f * live, ov.tint), true);
+			// a soft dark rim so the square crop sits in the scene instead of floating on it
+			BandQuad(tGlow, p, w * 1.25f, h * 1.25f, sh.top, sh.bot, col(0.55f, { 255, 0, 0, 0 }), false);
+			BandQuad(art, illo2.second, p, w, h, sh.top, sh.bot, gain(0.92f * (0.3f + 0.7f * smooth(0.f, 480.f, t))), false);
+			// tendrils of energy whipping in from the edges
+			if(bt > 100.f && bt < 420.f) {
+				const float k = clamp01((bt - 100.f) / 200.f);
+				for(int i = 0; i < 6; ++i) {
+					const float a0 = hash(i + 200) * 2.f * PI;
+					core::vector2df prev = p + core::vector2df(std::cos(a0), std::sin(a0)) * (0.75f * W);
+					for(int seg = 1; seg <= 10; ++seg) {
+						const float u = seg / 10.f;
+						if(u > k) break;
+						const float rr = (0.75f - 0.55f * u) * W;
+						const float aa = a0 + 1.4f * u * (i % 2 ? 1.f : -1.f);
+						const core::vector2df q = p + core::vector2df(std::cos(aa), std::sin(aa)) * rr;
+						if(q.Y > sh.top && q.Y < sh.bot)
+							Line(prev, q, 6.f * s, addc((1.f - smooth(300.f, 420.f, bt)) * 0.38f, { 255, 220, 210, 120 }));
+						prev = q;
 					}
 				}
 			}
-			for(auto& b : ov.bolts) {
-				Line(b.first, b.second, 9.f * s, addc(0.9f, { 255, 150, 230, 255 }));
-				Line(b.first, b.second, 3.f * s, addc(1.f, { 255, 255, 255, 255 }));
+			// lightning crawling over the art: short, thin, half the old intensity
+			const bool bolt = (bt > 300.f && bt < 400.f) || (bt > 1000.f && bt < 1060.f);
+			if(bolt && live > 0.9f) {
+				if(ov.acc > 40.f || ov.bolts.empty()) {
+					ov.acc = 0.f;
+					ov.bolts.clear();
+					for(int b = 0; b < 2; ++b) {
+						core::vector2df q = p + core::vector2df(frand(-0.45f, 0.45f) * w, frand(-0.45f, 0.45f) * h);
+						const float dir = frand(0.f, 2.f * PI);
+						for(int seg = 0; seg < 8; ++seg) {
+							const float da = dir + frand(-0.9f, 0.9f);
+							const core::vector2df n = q + core::vector2df(std::cos(da), std::sin(da)) * (frand(16.f, 36.f) * s);
+							ov.bolts.push_back({ q, n });
+							q = n;
+						}
+					}
+				}
+				for(auto& b : ov.bolts) {
+					Line(b.first, b.second, 7.f * s, addc(0.4f, { 255, 150, 220, 255 }));
+					Line(b.first, b.second, 2.f * s, addc(0.55f, { 255, 235, 245, 255 }));
+				}
 			}
-		}
-		// gold sparkle burst around the silhouette at ~300 ms, twinkling after
-		if(ov.beat == 0 && t >= 300.f) {
-			ov.beat = 1;
-			for(int i = 0; i < 40; ++i) {
-				const float a = frand(0.f, 2.f * PI);
-				const core::vector2df q = p + core::vector2df(std::cos(a) * w * frand(0.35f, 0.62f), std::sin(a) * h * frand(0.35f, 0.62f));
-				sparks.push_back({ q, core::vector2df(frand(-15.f, 15.f), frand(-25.f, 5.f)) * s, -frand(0.f, 400.f), frand(700.f, 1100.f),
-								   frand(9.f, 18.f) * s, 0.f, 0.f, 0.f, { 255, 255, 214, 110 }, 1 });
+			// gold sparkle burst around the silhouette, twinkling after
+			if(ov.beat == 0 && bt >= 300.f) {
+				ov.beat = 1;
+				for(int i = 0; i < 34; ++i) {
+					const float a = frand(0.f, 2.f * PI);
+					const core::vector2df q = p + core::vector2df(std::cos(a) * w * frand(0.35f, 0.6f), std::sin(a) * h * frand(0.35f, 0.6f));
+					sparks.push_back({ q, core::vector2df(frand(-15.f, 15.f), frand(-25.f, 5.f)) * s, -frand(0.f, 400.f), frand(700.f, 1000.f),
+									   frand(8.f, 15.f) * s, 0.f, 0.f, 0.f, { 255, 200, 168, 86 }, 1 });
+				}
 			}
 		}
 	}
-	} // procedural scene
-	// two-tier name plate across the lower ~15%, sliding in from the left (authored scenes: near the end)
+	ShutterEdges(sh, ov.tint);
+	// two-tier name plate across the lower ~15%, sliding in from the left, out before the shutter closes
 	if(t < ov.plateStart) return;
 	const float tp = t - ov.plateStart;
-	const float slide = outQuint(tp / 220.f);
-	const float plateA = live;
-	const float textA = 1.f - smooth(D - 200.f, D - 150.f, t);
-	const s32 y0 = (s32)(0.79f * H), y1 = (s32)(0.875f * H), y2 = (s32)(0.94f * H);
+	const float slide = outQuint(tp / 260.f) * (1.f - smooth(D - 560.f, D - 380.f, t));
+	const float plateA = clamp01(tp / 120.f) * (1.f - smooth(D - 560.f, D - 380.f, t));
+	const float textA = plateA;
+	if(plateA <= 0.f) return;
+	const s32 y0 = (s32)(0.77f * H), y1 = (s32)(0.855f * H), y2 = (s32)(0.915f * H);
 	const s32 right = (s32)(W * 0.78f * slide);
 	const video::SColor band = col(0.80f * plateA, { 255, 6, 10, 22 }), bandEnd = col(0.f, { 255, 6, 10, 22 });
 	drv->draw2DRectangle(core::rect<s32>(0, y0, right, y1), band, bandEnd, band, bandEnd);
-	const video::SColor rule = col(plateA, { 255, 220, 230, 255 }), ruleEnd = col(0.f, { 255, 220, 230, 255 });
+	const video::SColor rule = col(plateA * 0.85f, { 255, 220, 210, 170 }), ruleEnd = col(0.f, { 255, 220, 210, 170 });
 	drv->draw2DRectangle(core::rect<s32>(0, y0 - (s32)(2 * s), right, y0), rule, ruleEnd, rule, ruleEnd);
 	const s32 inner = (s32)(W * 0.52f * slide);
-	const video::SColor pl = col(0.95f * plateA, ov.plate), plEnd = col(0.f, ov.plate);
+	const video::SColor pl = col(0.92f * plateA, ov.plate), plEnd = col(0.f, ov.plate);
 	drv->draw2DRectangle(core::rect<s32>(0, y1, inner, y2), pl, plEnd, pl, plEnd);
 	const float textX = -0.6f * W * (1.f - slide) + 34.f * s;
 	if(F.plate) {
@@ -1020,15 +1274,226 @@ void DrawCutin() {
 		const auto d = TextSize(F.statline, ov.stats);
 		Text(F.statline, ov.stats, textX + 6.f * s, (y1 + y2) / 2.f - d.Height / 2.f, col(textA, { 255, 236, 240, 255 }), textA * 0.7f, 1);
 	}
-	// level stars pop in left to right, ~30 ms apart, from ~600 ms (white dot, then gold)
+	// level stars pop in left to right, ~30 ms apart (white dot, then gold); the summon method tag after them
+	float tagX = textX + 4.f * s;
 	for(int i = 0; i < ov.stars && i < 13; ++i) {
-		const float st = (ov.video > 0 ? 250.f : 600.f) + i * 30.f;
-		if(tp < st) break;
-		const float k = clamp01((tp - st) / 90.f);
-		const float sz = (22.f + 10.f * (1.f - k)) * s;
+		const float st = 220.f + i * 30.f;
 		const core::vector2df p(textX + 14.f * s + i * 27.f * s, y0 - 18.f * s);
-		Quad(tGlow, p, sz * 2.2f, sz * 2.2f, 0.f, addc(textA * (1.f - k) * 0.9f, { 255, 255, 255, 255 }), true);
+		tagX = p.X + 22.f * s;
+		if(tp < st) continue;
+		const float k = clamp01((tp - st) / 90.f);
+		const float sz = (22.f + 8.f * (1.f - k)) * s;
+		Quad(tGlow, p, sz * 2.f, sz * 2.f, 0.f, addc(textA * (1.f - k) * 0.5f, { 255, 255, 255, 255 }), true);
 		Quad(tStar, p, sz, sz, 0.f, col(textA, lerpc({ 255, 255, 255, 255 }, { 255, 255, 196, 60 }, k)), false);
+	}
+	if(ov.method != M_NONE && F.tag) {
+		video::SColor a, b;
+		MethodColors(ov.method, a, b);
+		const std::wstring tag = MethodName(ov.method);
+		const auto d = TextSize(F.tag, tag);
+		Text(F.tag, tag, tagX + 8.f * s, y0 - 18.f * s - d.Height / 2.f, col(textA * smooth(200.f, 400.f, tp), a), textA * 0.9f, 1);
+	}
+}
+
+// ---------------------------------------------------------------- summon method (Fusion / Synchro / Xyz / Link / Ritual / Pendulum)
+// ~1.55 s: the board dims, the materials gather into the method's figure (vortex, rings, galaxy, link arrows, ritual
+// circle, pendulum scales), the new monster's card rises out of it with its method title, then flies into its zone.
+// Additive light is capped low throughout: the figure reads as light in the dark, never as a flash.
+float outBack(float t) { t = clamp01(t); const float c1 = 1.5f, c3 = c1 + 1.f; const float u = t - 1.f; return 1.f + c3 * u * u * u + c1 * u * u; }
+void DrawMethod() {
+	const float t = ov.t, D = ov.dur, s = S();
+	const float W = SW(), H = SH();
+	const int m = ov.method;
+	video::SColor ca, cb;
+	MethodColors(m, ca, cb);
+	const core::vector2df c = Center() + core::vector2df(0.07f * W, -0.03f * H); // the board sits right of the info panel
+	const float dim = smooth(0.f, 220.f, t) * (1.f - smooth(D - 300.f, D, t));
+	FillRect(0, 0, (s32)W, (s32)H, col(0.58f * dim, { 255, 4, 6, 14 }));
+	Quad(tVig, Center(), W * 1.05f, H * 1.05f, 0.f, col(0.6f * dim, { 255, 0, 0, 0 }), false);
+	const float fig = smooth(120.f, 420.f, t) * (1.f - smooth(D - 420.f, D - 120.f, t)); // the method figure
+	const float R = 0.30f * H;
+	const float spin = t * 0.0011f;
+	// 1. the figure
+	switch(m) {
+	case M_FUSION: {
+		// a two-colour vortex: three spiral arms of soft light round a dark core
+		Quad(tGlow, c, R * 1.3f, R * 1.3f, 0.f, col(0.65f * fig, { 255, 10, 4, 20 }), false);
+		for(int arm = 0; arm < 3; ++arm)
+			for(int i = 0; i < 22; ++i) {
+				const float u = i / 21.f;
+				const float ang = arm * 2.f * PI / 3.f + spin * 2.4f + u * 3.6f;
+				const float r = R * (0.12f + 0.9f * u);
+				const core::vector2df q = c + core::vector2df(std::cos(ang) * r, std::sin(ang) * r * 0.82f);
+				const float sz = (22.f + 34.f * u) * s;
+				Quad(tGlow, q, sz, sz, 0.f, addc(fig * 0.2f * (1.f - 0.6f * u), lerpc(cb, ca, u)), true);
+			}
+		Quad(tRing, c, R * 1.05f, R * 0.86f, spin, addc(0.22f * fig, ca), true);
+		break;
+	}
+	case M_SYNCHRO: {
+		// a column of light with three tilted rings sliding down it; the level's stars stream through
+		Quad(tStreak, c, H * 1.1f, 0.10f * H, PI / 2.f, addc(0.2f * fig, cb), true);
+		Quad(tStreak, c, H * 1.1f, 0.025f * H, PI / 2.f, addc(0.3f * fig, ca), true);
+		for(int i = 0; i < 3; ++i) {
+			const float k = std::fmod(t * 0.0007f + i / 3.f, 1.f);
+			const float y = c.Y - 0.36f * H + k * 0.72f * H;
+			const float a = fig * std::sin(k * PI);
+			Quad(tRing, { c.X, y }, R * 1.2f, R * 0.30f, 0.f, addc(0.42f * a, ca), true);
+			Quad(tRing, { c.X, y }, R * 1.22f, R * 0.32f, 0.f, addc(0.2f * a, cb), true);
+		}
+		const int n = std::max(3, std::min(12, ov.stars));
+		for(int i = 0; i < n; ++i) {
+			const float k = std::fmod(t * 0.0009f + hash(i + 31), 1.f);
+			const core::vector2df q(c.X + (hash(i + 5) - 0.5f) * 0.10f * H, c.Y - 0.42f * H + k * 0.84f * H);
+			const float a = fig * std::sin(k * PI);
+			Quad(tStar, q, 16.f * s, 16.f * s, 0.f, col(a, { 255, 255, 226, 120 }), false);
+			Quad(tGlow, q, 34.f * s, 34.f * s, 0.f, addc(0.25f * a, cb), true);
+		}
+		break;
+	}
+	case M_XYZ: {
+		// a galaxy: a dark core, a gold disc of orbiting motes, two thin orbits
+		Quad(tGlow, c, R * 1.6f, R * 1.6f, 0.f, col(0.8f * fig, { 255, 2, 2, 10 }), false);
+		Quad(tRays, c, R * 2.3f, R * 2.3f, -spin * 0.5f, addc(0.08f * fig, ca), true);
+		for(int i = 0; i < 46; ++i) {
+			const float ang = hash(i) * 2.f * PI + spin * (1.6f + hash(i + 9));
+			const float r = R * (0.35f + 0.75f * hash(i + 17));
+			const core::vector2df q = c + core::vector2df(std::cos(ang) * r, std::sin(ang) * r * 0.36f);
+			const float sz = (8.f + 16.f * hash(i + 23)) * s;
+			Quad(tGlow, q, sz, sz, 0.f, addc(fig * 0.45f, i % 4 ? ca : cb), true);
+		}
+		Quad(tRing, c, R * 1.9f, R * 0.66f, 0.f, addc(0.2f * fig, ca), true);
+		Quad(tRing, c, R * 1.4f, R * 0.48f, 0.f, addc(0.16f * fig, cb), true);
+		break;
+	}
+	case M_LINK: {
+		// the Link arrows round the card: dark sockets, the monster's own arrows light up one by one
+		static const int bit[8] = { 0x80, 0x100, 0x20, 0x4, 0x2, 0x1, 0x8, 0x40 }; // N NE E SE S SW W NW
+		int lit = 0;
+		for(int i = 0; i < 8; ++i) {
+			const float ang = -PI / 2.f + i * PI / 4.f;
+			const core::vector2df dir(std::cos(ang), std::sin(ang));
+			const core::vector2df q = c + dir * (R * 0.92f);
+			const bool on = (ov.markers & bit[i]) != 0;
+			const float lightT = 380.f + lit * 90.f;
+			const float k = on ? smooth(lightT, lightT + 140.f, t) : 0.f;
+			if(on) ++lit;
+			Quad(tArrow, q, 46.f * s, 46.f * s, ang, col(0.85f * fig, { 255, 24, 34, 52 }), false);
+			if(k > 0.f) {
+				Quad(tArrow, q, 40.f * s, 40.f * s, ang, col(fig * k, cb), false);
+				Quad(tGlow, q, 90.f * s, 90.f * s, 0.f, addc(0.3f * fig * k, cb), true);
+				// circuit line from the arrow into the centre
+				Line(c + dir * (R * 0.2f), q - dir * (22.f * s), 5.f * s, addc(0.3f * fig * k, ca));
+			}
+		}
+		// the circuit frame: a square on its corner
+		for(int i = 0; i < 4; ++i) {
+			const float a0 = i * PI / 2.f + spin * 0.3f, a1 = a0 + PI / 2.f;
+			Line(c + core::vector2df(std::cos(a0), std::sin(a0)) * (R * 0.62f), c + core::vector2df(std::cos(a1), std::sin(a1)) * (R * 0.62f),
+				 6.f * s, addc(0.32f * fig, ca));
+		}
+		Quad(tGlow, c, R * 1.1f, R * 1.1f, 0.f, addc(0.12f * fig, ca), true);
+		break;
+	}
+	case M_RITUAL: {
+		// a ritual circle on the floor: two rings and rotating ticks, light rising from it
+		const core::vector2df fl = c + core::vector2df(0.f, 0.17f * H);
+		Quad(tRing, fl, R * 2.1f, R * 0.7f, 0.f, addc(0.4f * fig, ca), true);
+		Quad(tRing, fl, R * 1.7f, R * 0.56f, 0.f, addc(0.3f * fig, cb), true);
+		for(int i = 0; i < 24; ++i) {
+			const float ang = i * 2.f * PI / 24.f + spin * 0.6f;
+			const core::vector2df dir(std::cos(ang), std::sin(ang) * 0.333f);
+			Line(fl + dir * (R * 0.86f), fl + dir * (R * 0.98f), 4.f * s, addc(0.3f * fig, ca));
+		}
+		Quad(tStreak, fl - core::vector2df(0.f, 0.25f * H), 0.55f * H, R * 1.4f, PI / 2.f, addc(0.16f * fig, ca), true);
+		while(ov.acc > 30.f && fig > 0.3f) {
+			ov.acc -= 30.f;
+			const float a = frand(0.f, 2.f * PI);
+			sparks.push_back({ fl + core::vector2df(std::cos(a) * R * 0.9f, std::sin(a) * R * 0.3f), core::vector2df(frand(-10.f, 10.f), -frand(80.f, 170.f)) * s,
+							   0.f, frand(600.f, 1000.f), frand(5.f, 10.f) * s, 0.f, 0.f, 0.f, cb, 1 });
+		}
+		break;
+	}
+	case M_PENDULUM: {
+		// the two scales as pillars of light and a pendulum swinging between them, leaving an arc
+		for(int side = -1; side <= 1; side += 2) {
+			const core::vector2df pl = c + core::vector2df(side * 0.34f * H, 0.f);
+			Quad(tStreak, pl, H * 1.0f, 0.06f * H, PI / 2.f, addc(0.3f * fig, side < 0 ? ca : cb), true);
+		}
+		const core::vector2df pivot = c - core::vector2df(0.f, 0.36f * H);
+		const float swing = std::sin(t * 0.0062f) * 0.75f;
+		for(int i = 0; i < 26; ++i) {
+			const float u = i / 25.f;
+			const float ang = PI / 2.f + (u - 0.5f) * 1.5f;
+			const core::vector2df q = pivot + core::vector2df(std::cos(ang), std::sin(ang)) * (0.56f * H);
+			Quad(tGlow, q, 20.f * s, 20.f * s, 0.f, addc(0.25f * fig, lerpc(ca, cb, u)), true);
+		}
+		const core::vector2df bob = pivot + core::vector2df(std::cos(PI / 2.f + swing), std::sin(PI / 2.f + swing)) * (0.56f * H);
+		Line(pivot, bob, 3.f * s, addc(0.3f * fig, { 255, 230, 230, 240 }));
+		Quad(tGlow, bob, 70.f * s, 70.f * s, 0.f, addc(0.4f * fig, lerpc(ca, cb, 0.5f + swing * 0.6f)), true);
+		break;
+	}
+	default: break;
+	}
+	// 2. the materials gather into the figure (their card art, spiralling in and shrinking away)
+	const int nm = (int)ov.codes.size();
+	for(int i = 0; i < nm; ++i) {
+		auto* art = Art(ov.codes[i]);
+		if(!art) continue;
+		const float t0 = 60.f + i * 50.f;
+		const float k = outCubic((t - t0 - 160.f) / 520.f);
+		const float a = smooth(t0, t0 + 160.f, t) * (1.f - smooth(0.7f, 1.f, k));
+		if(a <= 0.f) continue;
+		const float base = -PI / 2.f + (i + 0.5f) * 2.f * PI / std::max(1, nm) + (nm == 1 ? PI : 0.f);
+		const float twist = m == M_FUSION ? 2.4f : m == M_XYZ ? 3.2f : m == M_SYNCHRO ? 0.f : 0.9f;
+		const float ang = base + twist * k;
+		const float r = (0.40f * H) * (1.f - k);
+		core::vector2df q = c + core::vector2df(std::cos(ang) * r, std::sin(ang) * r * 0.8f);
+		if(m == M_SYNCHRO) q = core::vector2df(c.X + std::cos(base) * r, c.Y - 0.36f * H * k + std::sin(base) * r * 0.5f);
+		const float h = 0.20f * H * (1.f - 0.7f * k), w = h * 0.686f;
+		Quad(tGlow, q, w * 1.8f, h * 1.5f, 0.f, addc(0.25f * a, ca), true);
+		Quad(art, Full(art), q, w, h, (ang - base) * 0.3f, col(a, lerpc({ 255, 255, 255, 255 }, ca, k)), false);
+	}
+	// 3. the new monster's card rises out of the figure, then flies into its zone
+	auto* card = Art(ov.code);
+	if(card) {
+		const float tin = 620.f, tout = D - 400.f;
+		const float k = outBack((t - tin) / 360.f);
+		const float fly = smooth(tout, D - 60.f, t);
+		const float a = smooth(tin, tin + 160.f, t) * (1.f - smooth(0.75f, 1.f, fly));
+		if(a > 0.f) {
+			core::vector2df to = ov.zoneScreen;
+			if(to.X < -900.f || !ov.hasZone) to = c;
+			const float fe = fly * fly;
+			const core::vector2df p = c + (to - c) * fe;
+			const float h = 0.48f * H * (0.6f + 0.4f * k) * (1.f - 0.8f * fe), w = h * 0.686f;
+			Quad(tGlow, p, w * 2.1f, h * 1.7f, 0.f, addc(0.32f * a, ca), true);
+			Quad(tGlow, p, w * 1.25f, h * 1.12f, 0.f, col(0.5f * a, { 255, 0, 0, 0 }), false);
+			Quad(card, Full(card), p, w, h, 0.f, col(a, { 255, 255, 255, 255 }), false);
+			// a single soft sheen across the face as it arrives (no white-out)
+			const float sheen = clamp01((t - tin - 120.f) / 380.f);
+			if(sheen > 0.f && sheen < 1.f)
+				Quad(tStreak, p + core::vector2df((sheen - 0.5f) * w * 1.3f, 0.f), h * 0.9f, w * 0.5f, 1.25f, addc(0.3f * a * std::sin(sheen * PI), { 255, 255, 250, 235 }), true);
+			if(ov.beat == 0 && t >= tin + 120.f) {
+				ov.beat = 1;
+				Burst(p, 26, lerpc(ca, { 255, 255, 255, 255 }, 0.3f), 300.f, 11.f, 700.f, 1);
+			}
+		}
+		// 4. the method title under the card
+		const float ta = smooth(tin + 120.f, tin + 300.f, t) * (1.f - smooth(tout - 150.f, tout + 60.f, t));
+		if(ta > 0.f) {
+			const std::wstring title = MethodName(m);
+			const float ty = c.Y + 0.31f * H;
+			if(auto* img = Ui(KeyOf(title))) {
+				const float p = outCubic((t - tin - 120.f) / 260.f);
+				Quad(tGlow, { c.X, ty }, 0.9f * H, 0.16f * H, 0.f, addc(0.22f * ta, ca), true);
+				Title(img, c.X, ty, 0.085f * H, ta, 1.25f - 0.25f * p, (t - tin - 380.f) / 420.f);
+			} else if(F.plate) {
+				const auto d = TextSize(F.plate, title);
+				Quad(tGlow, { c.X, ty }, d.Width * 1.8f, d.Height * 2.4f, 0.f, addc(0.25f * ta, ca), true);
+				Text(F.plate, title, c.X - d.Width / 2.f, ty - d.Height / 2.f, col(ta, { 255, 255, 246, 225 }), ta, 2);
+			}
+		}
 	}
 }
 
@@ -1089,9 +1554,9 @@ void DrawExodia() {
 		const float level = smooth(2750.f, 3200.f, t);
 		const float full = window(t, 3000.f, 3900.f, 150.f, 400.f);
 		const s32 top = (s32)(H * (1.f - level));
-		const video::SColor f0 = col(0.f, { 255, 255, 120, 20 }), f1 = col(fire * 0.8f, { 255, 255, 110, 20 });
+		const video::SColor f0 = col(0.f, { 255, 255, 120, 20 }), f1 = col(fire * 0.62f, { 255, 236, 92, 18 });
 		drv->draw2DRectangle(core::rect<s32>(0, top, (s32)W, (s32)H), f0, f0, f1, f1);
-		FillRect(0, 0, (s32)W, (s32)H, col(full * 0.85f, { 255, 255, 150, 40 }));
+		FillRect(0, 0, (s32)W, (s32)H, col(full * 0.5f, { 255, 220, 110, 30 }));
 		while(ov.acc > 12.f) {
 			ov.acc -= 12.f;
 			for(int k = 0; k < 4; ++k) {
@@ -1124,15 +1589,15 @@ void DrawExodia() {
 		if(t > 5750.f && t < 6050.f) {
 			const float k = (t - 5750.f) / 300.f;
 			Quad(tStreak, p + core::vector2df((k - 0.5f) * 0.9f * W, (k - 0.5f) * 0.5f * H), W * 0.9f, 60.f * s, 0.5f, addc(1.f - k, { 255, 255, 220, 140 }), true);
-			FillRect(0, 0, (s32)W, (s32)H, col((1.f - k) * 0.6f, { 255, 255, 240, 200 }));
+			FillRect(0, 0, (s32)W, (s32)H, col((1.f - k) * 0.28f, { 255, 255, 228, 180 }));
 		}
 		// 6600-9200 an energy orb gathers between the hands, wind arcs orbiting
 		const float charge = clamp01((t - 6600.f) / 2600.f);
 		if(t > 6600.f) {
 			const core::vector2df orb = p + core::vector2df(0.f, 0.12f * h);
 			const float r = (30.f + 220.f * charge * charge) * s;
-			Quad(tGlow, orb, r * 2.4f, r * 2.4f, 0.f, addc(0.9f, { 255, 255, 230, 140 }), true);
-			Quad(tGlow, orb, r, r, 0.f, addc(1.f, { 255, 255, 255, 255 }), true);
+			Quad(tGlow, orb, r * 2.4f, r * 2.4f, 0.f, addc(0.5f, { 255, 255, 220, 130 }), true);
+			Quad(tGlow, orb, r, r, 0.f, addc(0.6f, { 255, 255, 246, 225 }), true);
 			for(int i = 0; i < 4; ++i)
 				Quad(tRing, p, h * (0.7f + 0.12f * i), h * (0.32f + 0.05f * i), t * 0.004f * (i % 2 ? 1.f : -1.3f) + i, addc(0.45f * charge, { 255, 240, 245, 255 }), true);
 		}
@@ -1142,11 +1607,12 @@ void DrawExodia() {
 		for(int i = 0; i < 3; ++i) {
 			const float k = clamp01((t - 9200.f - i * 80.f) / 500.f);
 			const float r = W * 1.6f * outCubic(k);
-			Quad(tRing, c, r, r, 0.f, addc(1.f - k, { 255, 255, 214, 100 }), true);
+			Quad(tRing, c, r, r, 0.f, addc(0.6f * (1.f - k), { 255, 255, 214, 100 }), true);
 		}
 	}
 	const float white = smooth(9300.f, 9600.f, t) * (1.f - smooth(9950.f, 10400.f, t));
-	if(white > 0.f) FillRect(0, 0, (s32)W, (s32)H, col(white, { 255, 255, 255, 255 }));
+	// MD whites out here; ours is a warm haze that stops well short of white
+	if(white > 0.f) FillRect(0, 0, (s32)W, (s32)H, col(white * 0.55f, { 255, 236, 222, 196 }));
 }
 
 // ---------------------------------------------------------------- phase / turn bands (~0.9 s)
@@ -1237,8 +1703,13 @@ void Draw(scene::ISceneManager* smgr) {
 		FillRect(0, 0, (s32)W, (s32)H, col(0.42f * window(ov.t, 0.f, ov.dur, 100.f, 200.f), { 255, 10, 22, 48 }));
 	DrawFx(coll);
 	if(sceneTex && !(ov.kind == Overlay::CUTIN && ov.video > 0) && ov.kind != Overlay::EXODIA) DropSceneTex();
+	if(ov.hasZone) {
+		const auto zs = coll->getScreenCoordinatesFrom3DPosition(ov.zone);
+		ov.zoneScreen = core::vector2df((float)zs.X, (float)zs.Y);
+	}
 	switch(ov.kind) {
 	case Overlay::CUTIN: DrawCutin(); break;
+	case Overlay::METHOD: DrawMethod(); break;
 	case Overlay::SEAL: DrawSeal(); break;
 	case Overlay::EXODIA: DrawExodia(); break;
 	case Overlay::CHAIN: {

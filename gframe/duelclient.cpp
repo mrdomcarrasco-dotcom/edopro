@@ -3125,6 +3125,8 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 				Play(SoundManager::SFX::BANISHED);
 		}
 		auto lock = LockIf();
+		if(!mainGame->dInfo.isCatchingUp)
+			mdfx::NoteMove(code, previous.location, current.location, reason);
 		if((reason & REASON_DESTROY) && (previous.location & LOCATION_ONFIELD) && !(previous.location & LOCATION_OVERLAY)
 		   && previous.location != current.location && !mainGame->dInfo.isCatchingUp) {
 			if(ClientCard* dcard = mainGame->dField.GetCard(previous.controler, previous.location, previous.sequence)) {
@@ -3368,7 +3370,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			ClientCard* scard = mainGame->dField.GetCard(self, info.location, info.sequence);
 			if(cutin != mdfx::Cutin::NONE) {
 				// Master Duel style: a 1.4 s scene, then the card shrinks from ~1.55x into its zone
-				mainGame->WaitFrameSignal(mdfx::StartCutin(cutin, code, self == 1), lock);
+				mainGame->WaitFrameSignal(mdfx::StartCutin(cutin, code, self == 1, scard ? &scard->curPos : nullptr, false), lock);
 				if(scard)
 					mdfx::Pop(scard->popFrom, scard->popT, scard->popDur, 1.55f, 420.0f);
 				mainGame->WaitFrameSignal(20, lock);
@@ -3410,13 +3412,27 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			ClientCard* scard = mainGame->dField.GetCard(self, info.location, info.sequence);
 			if(cutin != mdfx::Cutin::NONE) {
 				// Master Duel style: a 1.4 s scene, then the card shrinks from ~1.55x into its zone
-				mainGame->WaitFrameSignal(mdfx::StartCutin(cutin, code, self == 1), lock);
+				mainGame->WaitFrameSignal(mdfx::StartCutin(cutin, code, self == 1, scard ? &scard->curPos : nullptr), lock);
 				if(scard)
 					mdfx::Pop(scard->popFrom, scard->popT, scard->popDur, 1.55f, 420.0f);
 				mainGame->WaitFrameSignal(20, lock);
 				return true;
 			}
 			if(mdfx::Enabled()) {
+				// Fusion / Synchro / Xyz / Link / Ritual / Pendulum: the summon-method presentation first
+				if(scard) {
+					if(const int frames = mdfx::SummonMethod(code, scard->curPos, self == 1)) {
+						// the card in the zone is hidden while its big copy rises out of the figure and flies in
+						const float alpha = scard->curAlpha;
+						scard->curAlpha = 0.0f;
+						mainGame->WaitFrameSignal(frames, lock);
+						scard->curAlpha = alpha > 5.0f ? alpha : 255.0f;
+						mdfx::Pop(scard->popFrom, scard->popT, scard->popDur, 1.3f, 320.0f);
+						mdfx::SummonFlash(scard->curPos, true);
+						mainGame->WaitFrameSignal(20, lock);
+						return true;
+					}
+				}
 				// lands oversized and settles into the zone (special summons flash white, then cyan)
 				if(scard) {
 					mdfx::Pop(scard->popFrom, scard->popT, scard->popDur, 1.4f, 380.0f);
