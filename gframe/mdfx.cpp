@@ -154,7 +154,7 @@ void BuildTextures() {
 	});
 	tFeather = MakeTex("mdfx_feather", 128, 128, [](float u, float v) {
 		const float e = std::max(std::fabs(u), std::fabs(v));
-		return smooth(0.62f, 1.f, e) * 0.7f + smooth(0.6f, 1.f, std::sqrt(u * u + v * v) * 0.78f) * 0.3f;
+		return std::max(smooth(0.48f, 0.98f, e), smooth(0.72f, 1.18f, std::sqrt(u * u + v * v)));
 	});
 	tArrow = MakeTex("mdfx_arrow", 64, 64, [](float u, float v) {
 		// a filled chevron: the triangle u in [-0.6, 0.75], |v| < (0.75 - u) * 0.8, with a soft edge
@@ -1201,7 +1201,7 @@ void DrawCutin() {
 			// a soft dark rim so the square crop sits in the scene instead of floating on it
 			BandQuad(tGlow, p, w * 1.25f, h * 1.25f, sh.top, sh.bot, col(0.55f, { 255, 0, 0, 0 }), false);
 			BandQuad(art, illo2.second, p, w, h, sh.top, sh.bot, gain(0.92f * (0.3f + 0.7f * smooth(0.f, 480.f, t))), false);
-			BandQuad(tFeather, p, w * 1.01f, h * 1.01f, sh.top, sh.bot, col(0.92f, { 255, 6, 8, 16 }), false);
+			BandQuad(tFeather, p, w * 1.01f, h * 1.01f, sh.top, sh.bot, col(1.f, { 255, 8, 10, 18 }), false);
 			// tendrils of energy whipping in from the edges
 			if(bt > 100.f && bt < 420.f) {
 				const float k = clamp01((bt - 100.f) / 200.f);
@@ -1319,8 +1319,7 @@ void DrawMethod() {
 	const float fig = smooth(120.f, 420.f, t) * (1.f - smooth(D - 420.f, D - 120.f, t)); // the method figure
 	const float R = 0.34f * H;
 	// coloured fog round the figure: alpha-blended, so it tints the dark instead of adding light
-	Quad(tGlow, c, R * 3.4f, R * 2.6f, 0.f, col(0.32f * fig, ca), false);
-	Quad(tGlow, c, R * 2.0f, R * 1.6f, 0.f, col(0.22f * fig, cb), false);
+	Quad(tGlow, c, R * 4.2f, R * 3.0f, 0.f, col(0.2f * fig, ca), false);
 	const float spin = t * 0.0011f;
 	// 1. the figure
 	switch(m) {
