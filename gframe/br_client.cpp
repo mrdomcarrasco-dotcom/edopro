@@ -389,7 +389,7 @@ bool InTable(const irr::core::vector2di& m) {
 namespace {
 struct WideState {
 	bool on = false;
-	float scale = 0.50f, gap = 0.10f, dy = 0.30f, ystretch = 1.0f;
+	float scale = 0.50f, gap = 0.10f, dy = -0.75f, ystretch = 1.7f;
 	irr::core::matrix4 board[2], column[2];
 	bool handPlain[2]{};
 	uint8_t quad_seat[4]{ NONE, NONE, NONE, NONE }; // near-left, near-right, far-left, far-right
@@ -813,6 +813,7 @@ void BeginFrame() {
 
 void EndFrame() {}
 
+std::wstring DisplayName(uint8_t seat) { return SeatName(seat); }
 bool Viewing() { return false; }
 ClientCard* ViewCard(uint32_t, uint32_t) { return nullptr; }
 bool ShowViewPile(uint32_t) { return false; }

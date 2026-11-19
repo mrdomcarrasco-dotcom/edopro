@@ -4438,8 +4438,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			}
 		}
 		if(br.active_seat < 4 && br.target_seat < 4 && !mainGame->dInfo.isCatchingUp) {
-			const auto& a = br.seats[br.active_seat];
-			const auto& t = br.seats[br.target_seat];
+			struct { std::wstring name; } a{ brc::DisplayName(br.active_seat) }, t{ brc::DisplayName(br.target_seat) };
 			std::wstring text;
 			int kind = 0;
 			if(br.active_seat == br.my_seat)
@@ -4482,7 +4481,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			if(seat == br.my_seat)
 				mdfx::SeatToast(epro::format(L"You are out ({}) · {} place", why, place), 1);
 			else
-				mdfx::SeatToast(epro::format(L"{} is out ({}) · {} place", s.name, why, place), 2);
+				mdfx::SeatToast(epro::format(L"{} is out ({}) · {} place", brc::DisplayName(seat), why, place), 2);
 		}
 		if(!mainGame->dInfo.isCatchingUp)
 			mainGame->AddChatMsg(epro::format(L"Battle Royal: {} is out ({}), {} place, {} left", s.name, why, place, left), 8, 2);

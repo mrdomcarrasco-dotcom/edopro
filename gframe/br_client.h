@@ -8,6 +8,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <irrlicht.h>
 
 namespace ygo {
@@ -37,6 +38,7 @@ irr::core::vector3df Point(int p, const irr::core::vector3df& v);
 irr::core::vector3df CardPoint(const ClientCard* c, const irr::core::vector3df& v);
 bool MapMouse(irr::core::vector3df& pt); // field point -> the space of the live board under it; false: none
 void DrawOffstage();
+std::wstring DisplayName(uint8_t seat); // "[AI] Kaiba - DSOD B" -> "Kaiba"
 bool Viewing();                   // legacy (the 3D field always shows the live board now): false
 bool TableOpen();                 // the table is open (or still fading)
 void DrawTable();                 // gMutex held: before env->drawAll, so windows open above it
