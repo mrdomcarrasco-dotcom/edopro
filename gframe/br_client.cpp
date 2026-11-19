@@ -849,10 +849,26 @@ void AutoTest() {
 			}
 			break;
 		}
-		if(!cycleTable || now < at)
+		if(!cycleTable)
+			break;
+		// once per opening: list a graveyard from the table (the window must sit above it), then close the list
+		static uint32_t pileAt = 0, pileClose = 0;
+		if(table_open && pileAt && now > pileAt) {
+			pileAt = 0;
+			for(uint8_t s = 0; s < br.count && s < 4; ++s) {
+				const int fi = FieldIndex(s);
+				const bool has = fi >= 0 ? !mainGame->dField.grave[fi].empty() : (frozen[s].version != ~0u && !frozen[s].grave.empty());
+				if(has) { ShowPile(s, LOCATION_GRAVE); pileClose = now + 3000; break; }
+			}
+		}
+		if(pileClose && now > pileClose) {
+			pileClose = 0;
+			if(mainGame->wCardDisplay) mainGame->wCardDisplay->setVisible(false);
+		}
+		if(now < at)
 			break;
 		if(table_open) { CloseTable(); at = now + 7000; }
-		else { OpenTable(-1); at = now + 9000; }
+		else { OpenTable(-1); at = now + 9000; pileAt = now + 3000; }
 		break;
 	}
 	default:
