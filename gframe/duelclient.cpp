@@ -1375,6 +1375,9 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 	}
 	switch(curMsg) {
 	case MSG_RETRY: {
+		if(const char* trace = std::getenv("BR_AUTOTEST"); trace && *trace) {
+			if(FILE* f = std::fopen("br-client.log", "a")) { std::fprintf(f, "RETRY at turn %d\n", mainGame->dInfo.turn); std::fclose(f); }
+		}
 		if(!mainGame->dInfo.compat_mode) {
 			std::unique_lock<epro::mutex> lock(mainGame->gMutex);
 			mainGame->stMessage->setText(gDataManager->GetSysString(1434).data());
@@ -4684,6 +4687,16 @@ void DuelClient::SendResponse() {
 		/*if(mainGame->dInfo.time_player == 0)
 			SendPacketToServer(CTOS_TIME_CONFIRM);*/
 		mainGame->dInfo.time_player = 2;
+		// BR_AUTOTEST: log every response (br-client.log) to trace a rejected one (MSG_RETRY)
+		static const char* trace = std::getenv("BR_AUTOTEST");
+		if(trace && *trace) {
+			if(FILE* f = std::fopen("br-client.log", "a")) {
+				std::fprintf(f, "turn %d msg %d resp", mainGame->dInfo.turn, static_cast<int>(msg));
+				for(auto b : response_buf) std::fprintf(f, " %02x", b);
+				std::fprintf(f, "\n");
+				std::fclose(f);
+			}
+		}
 		SendBufferToServer(CTOS_RESPONSE, response_buf.data(), response_buf.size());
 	}
 }

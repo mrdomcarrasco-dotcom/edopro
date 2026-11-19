@@ -1,6 +1,7 @@
 #include "br_client.h"
 #include <algorithm>
 #include <atomic>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <map>
@@ -405,6 +406,13 @@ void OnBoard(const uint8_t* p, size_t len) {
 }
 
 void OnPrompt(uint8_t msg) {
+	if(const char* trace = std::getenv("BR_AUTOTEST"); trace && *trace) {
+		if(FILE* f = std::fopen("br-client.log", "a")) {
+			const auto& br = BR();
+			std::fprintf(f, "turn %d prompt %d active %d target %d my %d slot %d\n", mainGame->dInfo.turn, msg, br.active_seat, br.target_seat, br.my_seat, br.my_seat < 4 ? br.seats[br.my_seat].slot : -1);
+			std::fclose(f);
+		}
+	}
 	// these prompts pick cards/zones on the field or open a window: close the table
 	switch(msg) {
 	case MSG_SELECT_IDLECMD:
