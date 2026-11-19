@@ -1123,7 +1123,38 @@ void AutoTest() {
 			if(now < myAt)
 				break;
 			switch(myStage) {
-			case 0: myStage = 1; myAt = now + 3000; break;
+			case 0: {
+				myStage = 1;
+				myAt = now + 3000;
+				// self-check of the 2x2 hit-testing: every live field card projected to the screen must hover as itself
+				auto& d = mainGame->dField;
+				auto* coll = mainGame->smgr->getSceneCollisionManager();
+				int ok = 0, bad = 0;
+				std::string misses;
+				for(int p = 0; p < 2; ++p)
+					for(auto* list : { &d.mzone[p], &d.szone[p] })
+						for(auto* c : *list) {
+							if(!c) continue;
+							const auto sc = coll->getScreenCoordinatesFrom3DPosition(CardPoint(c, c->curPos));
+							const auto keep_loc = d.hovered_location; const auto keep_ctl = d.hovered_controler; const auto keep_seq = d.hovered_sequence;
+							d.GetHoverField(sc);
+							const bool hit = d.hovered_location == c->location && d.hovered_controler == c->controler && d.hovered_sequence == c->sequence;
+							(hit ? ok : bad)++;
+							if(!hit) misses += " p" + std::to_string(p) + "/" + std::to_string(c->location) + "/" + std::to_string(c->sequence) + "->" + std::to_string(d.hovered_controler) + "/" + std::to_string(d.hovered_location) + "/" + std::to_string(d.hovered_sequence);
+							d.hovered_location = keep_loc; d.hovered_controler = keep_ctl; d.hovered_sequence = keep_seq;
+						}
+				for(auto* c : d.hand[0]) {
+					const auto r = c->hand_collision;
+					const irr::core::vector2di mid((r.UpperLeftCorner.X + r.LowerRightCorner.X) / 2, (r.UpperLeftCorner.Y + r.LowerRightCorner.Y) / 2);
+					if(c != d.hand[0].back()) continue; // the top card of the fan is fully visible
+					const auto keep_loc = d.hovered_location;
+					d.GetHoverField(mid);
+					(d.hovered_location == LOCATION_HAND ? ok : bad)++;
+					d.hovered_location = keep_loc;
+				}
+				if(FILE* f = std::fopen("br-client.log", "a")) { std::fprintf(f, "HITTEST turn %d ok %d bad %d%s\n", mainGame->dInfo.turn, ok, bad, misses.c_str()); std::fclose(f); }
+				break;
+			}
 			case 1: {
 				uint8_t pick = NONE;
 				for(uint8_t s = 0; s < br.count && s < 4; ++s)
