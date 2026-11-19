@@ -439,6 +439,8 @@ uint8_t off_hover_seat = NONE;          // offstage board under the mouse (main 
 ClientCard* off_hover_card = nullptr;   // ...and its card under the mouse (cards live in the pool until Reset)
 bool picking = false;                   // attack pick: Attack was chosen, the next click picks seat + target
 uint8_t drawing_off_seat = NONE;        // DrawOffstage: the seat whose frozen board is in the field lists right now
+struct OffSel { uint32_t index; uint8_t seat, loc; uint32_t seq; };
+std::vector<OffSel> off_select;         // MSG_SEAT_SELECT for the MSG_SELECT_CARD that follows (duel thread)
 
 irr::core::matrix4 ColumnMatrix(int col) {
 	irr::core::matrix4 toCentre, sc, out;
@@ -712,8 +714,10 @@ void DrawOffstage() {
 			for(auto* c : o.overlays) place(c);
 		}
 		// attack pick: an opponent's monsters light up like any selectable card
-		const bool pickable = picking && seat != BR().my_seat && BR().seats[seat].alive && !Allies(seat, BR().my_seat);
-		for(auto* c : d.mzone[k]) if(c) c->is_selectable = pickable;
+		if(picking) {
+			const bool pickable = seat != BR().my_seat && BR().seats[seat].alive && !Allies(seat, BR().my_seat);
+			for(auto* c : d.mzone[k]) if(c) c->is_selectable = pickable;
+		}
 		for(auto* c : o.overlays) mainGame->DrawCard(c);
 		for(auto* list : { &d.mzone[k], &d.szone[k], &d.deck[k], &d.hand[k], &d.grave[k], &d.remove[k], &d.extra[k] })
 			for(auto* c : *list) if(c) mainGame->DrawCard(c);
@@ -760,6 +764,54 @@ void OnBoard(const uint8_t* p, size_t len) {
 	std::memcpy(&s.removed, p + 27, 4);
 	++board_version[seat];
 }
+
+void OnSeatSelect(const uint8_t* p, size_t len) {
+	off_select.clear();
+	if(len < 4)
+		return;
+	uint32_t n;
+	std::memcpy(&n, p, 4);
+	for(uint32_t i = 0; i < n && 4 + (i + 1) * 10 <= len; ++i) {
+		const uint8_t* e = p + 4 + i * 10;
+		OffSel o{};
+		std::memcpy(&o.index, e, 4);
+		o.seat = e[4];
+		o.loc = e[5];
+		std::memcpy(&o.seq, e + 6, 4);
+		off_select.push_back(o);
+	}
+}
+ClientCard* OffSelectCard(uint32_t index) {
+	if(off_select.empty())
+		return nullptr;
+	std::lock_guard<epro::mutex> lock(mainGame->gMutex); // the main thread draws (and swaps) the offstage boards
+	for(const auto& o : off_select) {
+		if(o.index != index || o.seat >= 4)
+			continue;
+		auto& b = off[o.seat];
+		if(b.version != board_version[o.seat] || b.k < 0) {
+			int q = -1;
+			for(int i = 0; i < 4; ++i) if(wide.quad_seat[i] == o.seat) q = i;
+			BuildOff(o.seat, q >= 2 || q < 0 ? 1 : 0);
+			b.version = board_version[o.seat];
+		}
+		const auto pick = [&](const std::vector<ClientCard*>& list) -> ClientCard* {
+			if(o.loc == LOCATION_MZONE || o.loc == LOCATION_SZONE)
+				return o.seq < list.size() ? list[o.seq] : nullptr;
+			for(auto* c : list) if(c && c->sequence == o.seq) return c;
+			return nullptr;
+		};
+		switch(o.loc) {
+		case LOCATION_MZONE: return pick(b.mzone);
+		case LOCATION_SZONE: return pick(b.szone);
+		case LOCATION_GRAVE: return pick(b.grave);
+		case LOCATION_REMOVED: return pick(b.remove);
+		default: return nullptr;
+		}
+	}
+	return nullptr;
+}
+void EndSeatSelect() { off_select.clear(); }
 
 void OnPrompt(uint8_t msg) {
 	if(const char* trace = std::getenv("BR_AUTOTEST"); trace && *trace) {
@@ -951,6 +1003,7 @@ void EndPick() {
 		return;
 	picking = false;
 	for(auto* c : pick_flagged) c->is_selectable = false;
+	for(auto& o : off) for(auto* c : o.mzone) if(c) c->is_selectable = false;
 	pick_flagged.clear();
 	if(pick_attacker) pick_attacker->is_highlighting = false;
 	pick_attacker = nullptr;
@@ -1422,9 +1475,29 @@ bool OnMouse(const irr::SEvent& event) {
 				RequestTarget(s);
 			return true;
 		}
-		// a click on an offstage opponent's board faces that opponent (spells and effects reach the live board)
-		if(!table_open && off_hover_seat != NONE && CanTarget(off_hover_seat)) {
-			RequestTarget(off_hover_seat);
+		// a card selection (targets, costs...): the cards of offstage boards it offers are clicked like any other
+		if(mainGame->dInfo.curMsg == MSG_SELECT_CARD && off_hover_card && off_hover_card->is_selectable && !DuelClient::answered) {
+			auto& d = mainGame->dField;
+			auto* c = off_hover_card;
+			if(c->is_selected) {
+				c->is_selected = false;
+				d.selected_cards.erase(std::remove(d.selected_cards.begin(), d.selected_cards.end(), c), d.selected_cards.end());
+			} else {
+				c->is_selected = true;
+				d.selected_cards.push_back(c);
+			}
+			const auto n = static_cast<uint32_t>(d.selected_cards.size());
+			if(n >= d.select_max || (n >= d.select_min && n == d.selectable_cards.size())) {
+				d.SetResponseSelectedCards();
+				d.ShowCancelOrFinishButton(0);
+				DuelClient::SendResponse();
+			} else if(n >= d.select_min) {
+				d.select_ready = true;
+				d.ShowCancelOrFinishButton(2);
+			} else {
+				d.select_ready = false;
+				d.ShowCancelOrFinishButton(d.select_cancelable && n == 0 ? 1 : 0);
+			}
 			return true;
 		}
 		if(!inTable)

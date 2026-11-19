@@ -373,10 +373,6 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 						}
 					}
 					if (select_options.size() == 1) {
-						// Battle Royal: a card that targets the field asks which opponent's board first
-						if (id == BUTTON_CMD_ACTIVATE && (mainGame->dInfo.curMsg == MSG_SELECT_IDLECMD || mainGame->dInfo.curMsg == MSG_SELECT_BATTLECMD)
-							&& brc::BeginTargetChoice(clicked_card, mainGame->dInfo.curMsg == MSG_SELECT_IDLECMD ? (index << 16) + 5 : index << 16))
-							break;
 						if (mainGame->dInfo.curMsg == MSG_SELECT_IDLECMD) {
 							DuelClient::SetResponseI((index << 16) + 5);
 						} else if (mainGame->dInfo.curMsg == MSG_SELECT_BATTLECMD) {
@@ -2785,7 +2781,7 @@ void ClientField::SetShowMark(ClientCard* pcard, bool enable) {
 			for(auto tgit = chit->target.begin(); tgit != chit->target.end(); ++tgit)
 				(*tgit)->is_showchaintarget = enable;
 		}
-		if(chit->target.find(pcard) != chit->target.end())
+		if(chit->target.find(pcard) != chit->target.end() && chit->chain_card)
 			chit->chain_card->is_showchaintarget = enable;
 	}
 }
@@ -2803,7 +2799,7 @@ void ClientField::ShowCardInfoInList(ClientCard* pcard, irr::gui::IGUIElement* e
 			str.append(L"\n").append(epro::sprintf(gDataManager->GetSysString(216), i + 1));
 		}
 		if(chit.target.find(pcard) != chit.target.end()) {
-			str.append(L"\n").append(epro::sprintf(gDataManager->GetSysString(217), i + 1, gDataManager->GetName(chit.chain_card->code)));
+			str.append(L"\n").append(epro::sprintf(gDataManager->GetSysString(217), i + 1, gDataManager->GetName(chit.code)));
 		}
 	}
 	if(str.length() > 0) {

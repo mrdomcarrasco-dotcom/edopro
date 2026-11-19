@@ -20,6 +20,9 @@ void OnBoard(const uint8_t* p, size_t len);  // MSG_SEAT_BOARD body (after the m
 void OnPrompt(uint8_t msg);                    // a prompt arrived: field-picking prompts need the live board
 void OnIdle(bool my_turn);                     // MSG_SELECT_IDLECMD while it is our turn
 void OnReloadField();                          // MSG_RELOAD_FIELD rebuilt the field
+void OnSeatSelect(const uint8_t* p, size_t len); // MSG_SEAT_SELECT: choices of the next MSG_SELECT_CARD on offstage boards
+ClientCard* OffSelectCard(uint32_t index);       // ...that choice's card on its offstage board (nullptr: a live card)
+void EndSeatSelect();                            // the MSG_SELECT_CARD has been read
 void Reset();                                  // duel start / end
 
 // --- main thread ---

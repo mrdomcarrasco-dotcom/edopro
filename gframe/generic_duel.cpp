@@ -903,6 +903,15 @@ void GenericDuel::TPResult(DuelPlayer* dp, uint8_t tp) {
 	RefreshExtra(0);
 	RefreshExtra(1);
 	new_replay.WriteStream(replay_stream);
+	// Battle Royal: people may target cards on offstage boards (bots keep the live boards: WindBot only knows those)
+	if(battle_royal) {
+		for(size_t seat = 0; seat < br_players.size(); ++seat) {
+			if(!br_players[seat] || !br_players[seat]->br_client)
+				continue;
+			const auto cmd = epro::format("Duel.BattleRoyalHuman({})", seat);
+			OCG_LoadScript(pduel, cmd.data(), static_cast<uint32_t>(cmd.size()), " ");
+		}
+	}
 	OCG_StartDuel(pduel);
 	Process();
 }
@@ -1315,6 +1324,16 @@ void GenericDuel::Sending(CoreUtils::Packet& packet, int& return_value, bool& re
 		packets_cache.emplace_back(pub.data(), pub.size());
 		if(seat < br_board_cache.size())
 			br_board_cache[seat] = std::move(pub);
+		break;
+	}
+	case MSG_SEAT_SELECT: {
+		// Battle Royal: which choices of the next card selection sit on offstage boards; only people get it
+		IteratePlayers([this, &packet](DuelPlayer* dueler) {
+			if(dueler->br_client && !BrMuted(dueler))
+				NetServer::SendCoreUtilsPacketToPlayer(dueler, STOC_GAME_MSG, packet);
+		});
+		for(auto& obs : observers)
+			NetServer::SendCoreUtilsPacketToPlayer(obs, STOC_GAME_MSG, packet);
 		break;
 	}
 	case MSG_SEAT_SWAP: {

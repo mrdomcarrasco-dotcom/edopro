@@ -2054,7 +2054,9 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			code = BufferIO::Read<uint32_t>(pbuf);
 			CoreUtils::loc_info info = CoreUtils::ReadLocInfo(pbuf, mainGame->dInfo.compat_mode);
 			info.controler = mainGame->LocalPlayer(info.controler);
-			if ((info.location & LOCATION_OVERLAY) > 0)
+			if (ClientCard* offcard = brc::OffSelectCard(i)) // Battle Royal: a card on an offstage board
+				pcard = offcard;
+			else if ((info.location & LOCATION_OVERLAY) > 0)
 				pcard = mainGame->dField.GetCard(info.controler, info.location & (~LOCATION_OVERLAY) & 0xff, info.sequence)->overlayed[info.position];
 			else if (info.location == 0) {
 				pcard = new ClientCard{};
@@ -2072,6 +2074,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			if (info.location & 0xf1)
 				panelmode = true;
 		}
+		brc::EndSeatSelect();
 		std::sort(mainGame->dField.selectable_cards.begin(), mainGame->dField.selectable_cards.end(), ClientCard::client_card_sort);
 		// Battle Royal attack pick: the attack target was already chosen on the board
 		if(!panelmode && mainGame->dInfo.br.active && brc::OnSelectCard()) {
@@ -3568,6 +3571,9 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 	case MSG_CHAIN_SOLVING: {
 		const auto ct = BufferIO::Read<uint8_t>(pbuf);
 		auto lock = LockIf();
+		// Battle Royal: a board swap mid-chain rebuilds the chain from the field reload; never index past it
+		if(ct == 0 || ct > mainGame->dField.chains.size())
+			return true;
 		if(!mainGame->dInfo.isCatchingUp) {
 			if(mainGame->dField.last_chain)
 				mainGame->WaitFrameSignal(11, lock);
@@ -3606,7 +3612,8 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		for(const auto& chain : mainGame->dField.chains) {
 			for(const auto& target : chain.target)
 				target->is_showchaintarget = false;
-			chain.chain_card->is_showchaintarget = false;
+			if(chain.chain_card)
+				chain.chain_card->is_showchaintarget = false;
 		}
 		mainGame->dField.chains.clear();
 		return true;
@@ -3614,7 +3621,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 	case MSG_CHAIN_NEGATED:
 	case MSG_CHAIN_DISABLED: {
 		const auto ct = BufferIO::Read<uint8_t>(pbuf);
-		if(!mainGame->dInfo.isCatchingUp) {
+		if(!mainGame->dInfo.isCatchingUp && ct > 0 && ct <= mainGame->dField.chains.size()) {
 			std::unique_lock<epro::mutex> lock(mainGame->gMutex);
 			mainGame->showcardcode = mainGame->dField.chains[ct - 1].code;
 			mainGame->showcarddif = 0;
@@ -4408,6 +4415,10 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 				mainGame->dInfo.isReplaySwapped = !mainGame->dInfo.isReplaySwapped;
 			}
 		}
+		return true;
+	}
+	case MSG_SEAT_SELECT: {
+		brc::OnSeatSelect(pbuf, len);
 		return true;
 	}
 	case MSG_SEAT_BOARD: {
