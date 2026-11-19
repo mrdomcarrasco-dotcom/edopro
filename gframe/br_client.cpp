@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cwctype>
+#include <functional>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -41,16 +43,23 @@ int last_idle_turn = -1;               // turn of our last idle prompt (gMutex)
 uint32_t board_version[4]{};           // bumped by every MSG_SEAT_BOARD (gMutex)
 
 // attack pick -> engine prompts (see BeginAttackPick)
-enum : int { PLAN_NONE = 0, PLAN_REATTACK, PLAN_ANSWER };
+enum : int { PLAN_NONE = 0, PLAN_REATTACK, PLAN_ANSWER, PLAN_REACTIVATE };
 struct AttackPlan {
 	uint8_t seat = NONE;
 	bool direct = false;
 	uint32_t a_loc = 0, a_seq = 0, a_code = 0; // the attacker (ours: it stays put through the target switch)
 	uint32_t t_seq = 0, t_code = 0;            // the monster attacked
+	uint32_t c_code = 0, c_loc = 0, c_seq = 0; // PLAN_REACTIVATE: the card to activate again after the switch
+	uint64_t c_desc = 0;
 };
 AttackPlan plan;                             // written before plan_stage
 std::atomic<int> plan_stage{ PLAN_NONE };
 std::atomic<bool> cancel_pick{ false };      // duel thread -> main thread: a new prompt ended the pick
+// the EDOPRO-style choice window (main thread)
+constexpr int kChoiceBase = 0xB700;          // GUI ids of its buttons
+irr::gui::IGUIWindow* choice_win = nullptr;
+bool choice_remove = false;                  // removed on the next frame, never inside its own click
+std::vector<std::function<void()>> choice_actions;
 ClientCard* pick_attacker = nullptr;
 std::vector<ClientCard*> pick_flagged;       // live opponent monsters lit as selectable
 struct DirectSpot { uint8_t seat; irr::core::recti rect; };
@@ -813,6 +822,9 @@ void Reset() {
 	direct_spots.clear();
 	plan_stage = PLAN_NONE;
 	cancel_pick = false;
+	if(choice_win) { choice_win->remove(); choice_win = nullptr; }
+	choice_remove = false;
+	choice_actions.clear();
 	wide.on = false;
 	for(auto& v : board_version)
 		v = 0;
@@ -969,15 +981,34 @@ bool CommitPick(uint8_t seat, ClientCard* target) {
 }
 }
 
-bool BeginAttackPick(ClientCard* attacker) {
+// --- the EDOPRO-style choice window (direct attacks, "use it on which opponent?") --- main thread
+namespace {
+void CloseChoice() {
+	if(choice_win) { choice_win->setVisible(false); choice_remove = true; }
+	choice_actions.clear();
+}
+void ShowChoice(const std::wstring& title, const std::vector<std::pair<std::wstring, std::function<void()>>>& items) {
+	if(choice_win) { choice_win->remove(); choice_win = nullptr; choice_remove = false; }
+	choice_actions.clear();
+	auto* env = mainGame->env;
+	const int w = mainGame->Scale(340), bh = mainGame->Scale(32), gap = mainGame->Scale(6), top = mainGame->Scale(30);
+	const int h = top + static_cast<int>(items.size()) * (bh + gap) + gap;
+	const auto scr = mainGame->driver->getScreenSize();
+	const int cx = static_cast<int>(scr.Width * 0.62f), cy = static_cast<int>(scr.Height * 0.45f);
+	choice_win = env->addWindow(irr::core::recti(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), false, title.data());
+	choice_win->getCloseButton()->setVisible(false);
+	choice_win->setDraggable(true);
+	for(size_t i = 0; i < items.size(); ++i) {
+		const int y = top + static_cast<int>(i) * (bh + gap);
+		env->addButton(irr::core::recti(gap * 2, y, w - gap * 2, y + bh), choice_win, kChoiceBase + static_cast<int>(i), items[i].first.data());
+		choice_actions.push_back(items[i].second);
+	}
+	env->setFocus(choice_win);
+}
+// pick mode: the attacker is chosen, the next click on an opponent's monster (any board) is the target
+void StartPick(ClientCard* attacker) {
 	const auto& br = BR();
-	if(!br.active || br.my_seat >= 4 || br.active_seat != br.my_seat || !attacker)
-		return false;
-	if(mainGame->dInfo.curMsg != MSG_SELECT_BATTLECMD || DuelClient::answered || OpponentCount() < 2)
-		return false;
 	auto& d = mainGame->dField;
-	if(std::find(d.attackable_cards.begin(), d.attackable_cards.end(), attacker) == d.attackable_cards.end())
-		return false;
 	EndPick();
 	cancel_pick = false;
 	picking = true;
@@ -986,51 +1017,142 @@ bool BeginAttackPick(ClientCard* attacker) {
 	if(const int fi = FieldIndex(br.target_seat); fi >= 0)
 		for(auto* c : d.mzone[fi])
 			if(c) { c->is_selectable = true; pick_flagged.push_back(c); }
-	mainGame->stHintMsg->setText(L"Attack: click any opponent's monster, or an opponent (name / empty board) to attack directly. Right-click cancels.");
+	mainGame->stHintMsg->setText(L"Choose the monster to attack (any opponent's board). Right-click cancels.");
 	mainGame->stHintMsg->setVisible(true);
+}
+bool AttackStillOpen(ClientCard* a) {
+	auto& d = mainGame->dField;
+	return a && mainGame->dInfo.curMsg == MSG_SELECT_BATTLECMD && !DuelClient::answered
+		&& std::find(d.attackable_cards.begin(), d.attackable_cards.end(), a) != d.attackable_cards.end();
+}
+// a spell / effect that targets cards on the field (MST, Raigeki Break, ...): its text says so
+bool TargetsTheField(uint32_t code) {
+	std::wstring t(gDataManager->GetText(code));
+	for(auto& ch : t) ch = static_cast<wchar_t>(std::towlower(ch));
+	if(t.find(L"target") == std::wstring::npos)
+		return false;
+	return t.find(L"on the field") != std::wstring::npos || t.find(L"opponent controls") != std::wstring::npos
+		|| t.find(L"your opponent's") != std::wstring::npos || t.find(L"opponent's field") != std::wstring::npos;
+}
+}
+
+// Attack with 2+ opponents alive: when someone can be attacked directly (an empty board), an EDOPRO choice
+// window lists those direct attacks (+ "Attack a monster"); with no direct attack on offer, the monsters of
+// every opponent light up and you just click the one to attack.
+bool BeginAttackPick(ClientCard* attacker) {
+	const auto& br = BR();
+	if(!br.active || br.my_seat >= 4 || br.active_seat != br.my_seat || !attacker)
+		return false;
+	if(OpponentCount() < 2 || !AttackStillOpen(attacker))
+		return false;
+	std::vector<std::pair<std::wstring, std::function<void()>>> items;
+	bool monsters = false;
+	for(uint8_t s = 0; s < 4; ++s) {
+		if(!Opponent(s)) continue;
+		if(SeatHasMonsters(s)) { monsters = true; continue; }
+		items.emplace_back(epro::format(L"Direct attack: {}", SeatName(s)), [attacker, s] {
+			if(!AttackStillOpen(attacker)) return;
+			picking = true; // CommitPick takes the attacker from the pick
+			pick_attacker = attacker;
+			CommitPick(s, nullptr);
+		});
+	}
+	if(items.empty()) {
+		StartPick(attacker);
+		return true;
+	}
+	if(monsters)
+		items.emplace_back(L"Attack a monster", [attacker] { if(AttackStillOpen(attacker)) StartPick(attacker); });
+	items.emplace_back(L"Cancel", [] {});
+	ShowChoice(L"Attack", items);
+	return true;
+}
+
+// Activating a card that targets the field while 2+ opponents are alive: which opponent's board? (the engine
+// only reaches the opponent you face, so another choice switches first and activates the same card again)
+bool BeginTargetChoice(ClientCard* card, int response) {
+	const auto& br = BR();
+	if(!br.active || br.my_seat >= 4 || br.active_seat != br.my_seat || !card || DuelClient::answered)
+		return false;
+	const auto msg = mainGame->dInfo.curMsg;
+	if((msg != MSG_SELECT_IDLECMD && msg != MSG_SELECT_BATTLECMD) || OpponentCount() < 2 || !Opponent(br.target_seat))
+		return false;
+	bool other = false;
+	for(uint8_t s = 0; s < 4; ++s) other |= CanTarget(s);
+	if(!other || !TargetsTheField(card->code))
+		return false;
+	auto& d = mainGame->dField;
+	const int idx = response >> 16;
+	if(idx < 0 || idx >= static_cast<int>(d.activatable_cards.size()))
+		return false;
+	const uint64_t desc = d.activatable_descs[idx].first;
+	const uint32_t code = card->code, loc = card->location, seq = card->sequence;
+	std::vector<std::pair<std::wstring, std::function<void()>>> items;
+	items.emplace_back(epro::format(L"{} (facing)", SeatName(br.target_seat)), [response] {
+		if(DuelClient::answered) return;
+		DuelClient::SetResponseI(response);
+		DuelClient::SendResponse();
+	});
+	for(uint8_t s = 0; s < 4; ++s) {
+		if(!CanTarget(s)) continue;
+		items.emplace_back(SeatName(s), [s, code, loc, seq, desc] {
+			if(DuelClient::answered || !CanTarget(s)) return;
+			plan.seat = s;
+			plan.c_code = code; plan.c_loc = loc; plan.c_seq = seq; plan.c_desc = desc;
+			Trace(epro::format("ACTPICK turn {} card {} seat {}", mainGame->dInfo.turn, code, s));
+			plan_stage = PLAN_REACTIVATE;
+			RequestTarget(s);
+		});
+	}
+	items.emplace_back(L"Cancel", [] {});
+	ShowChoice(L"Use it on which opponent?", items);
 	return true;
 }
 bool Picking() { return picking; }
 
 void DrawAttackPick() {
-	if(cancel_pick.exchange(false))
+	if(cancel_pick.exchange(false)) {
 		EndPick();
-	direct_spots.clear();
-	if(!picking || !mainGame->adFont)
-		return;
-	auto* coll = mainGame->smgr->getSceneCollisionManager();
-	for(uint8_t s = 0; s < 4; ++s) {
-		if(!Opponent(s) || SeatHasMonsters(s))
-			continue;
-		irr::core::vector3df pt;
-		const int fi = FieldIndex(s);
-		if(fi >= 0)
-			pt = Point(fi, irr::core::vector3df(3.95f, fi == 0 ? 1.8f : -1.8f, 0.f));
-		else {
-			int q = -1;
-			for(int i = 0; i < 4; ++i) if(wide.quad_seat[i] == s) q = i;
-			if(!wide.on || q < 0)
-				continue;
-			const int k = q >= 2 ? 1 : 0;
-			pt = irr::core::vector3df(3.95f, k == 0 ? 1.8f : -1.8f, 0.f);
-			wide.column[q & 1].transformVect(pt);
-		}
-		const auto sc = coll->getScreenCoordinatesFrom3DPosition(pt);
-		const std::wstring text = L"DIRECT ATTACK";
-		const auto dim = mainGame->adFont->getDimension(text.data());
-		const int padX = mainGame->Scale(14), padY = mainGame->Scale(6);
-		const irr::core::recti r(sc.X - dim.Width / 2 - padX, sc.Y - dim.Height / 2 - padY, sc.X + dim.Width / 2 + padX, sc.Y + dim.Height / 2 + padY);
-		mdfx::Pill(r);
-		const float pulse = 0.5f + 0.5f * std::sin(static_cast<float>(Now() % 1400) / 1400.f * 6.2832f);
-		const auto alpha = static_cast<irr::u32>(190 + 65 * pulse);
-		mainGame->adFont->draw(text.data(), r, irr::video::SColor(alpha, 255, 214, 140), true, true);
-		direct_spots.push_back({ s, r });
+		if(choice_win && choice_win->isVisible()) CloseChoice();
 	}
+	if(choice_remove && choice_win) { choice_win->remove(); choice_win = nullptr; }
+	choice_remove = false;
+	direct_spots.clear();
 }
 
 // --- duel thread: the prompts that follow a pick
+// after a "use it on" switch: activate the same card again (code, place and effect must match)
+bool Reactivate(bool idle) {
+	const auto& br = BR();
+	if(br.target_seat != plan.seat) {
+		Trace(epro::format("ACTPICK switch failed: target {} want {}", br.target_seat, plan.seat));
+		return false;
+	}
+	auto& d = mainGame->dField;
+	for(size_t i = 0; i < d.activatable_cards.size(); ++i) {
+		const auto* c = d.activatable_cards[i];
+		if(!c || c->code != plan.c_code || c->location != plan.c_loc || d.activatable_descs[i].first != plan.c_desc)
+			continue;
+		if((c->location & LOCATION_ONFIELD) && c->sequence != plan.c_seq)
+			continue;
+		Trace(epro::format("ACTPICK activate again as #{}", i));
+		DuelClient::SetResponseI(idle ? (static_cast<int>(i) << 16) + 5 : static_cast<int>(i) << 16);
+		DuelClient::SendResponse();
+		return true;
+	}
+	Trace("ACTPICK card not offered after the switch");
+	return false;
+}
+bool OnIdleCmd() {
+	if(plan_stage.load() != PLAN_REACTIVATE)
+		return false;
+	plan_stage = PLAN_NONE;
+	return Reactivate(true);
+}
 bool OnBattleCmd() {
 	const int st = plan_stage.exchange(PLAN_NONE);
+	if(st == PLAN_REACTIVATE)
+		return Reactivate(false);
 	if(st != PLAN_REATTACK)
 		return false; // PLAN_ANSWER: the attack happened (or failed): the plan is done
 	const auto& br = BR();
@@ -1186,7 +1308,21 @@ void CoverGui(bool on) {
 bool OnMouse(const irr::SEvent& event) {
 	if(!BR().active || !mainGame->dInfo.isInDuel)
 		return false;
-	// attack pick: the next click names the target (any opponent's monster, or the player)
+	// the choice window's buttons
+	if(event.EventType == irr::EET_GUI_EVENT && choice_win && event.GUIEvent.EventType == irr::gui::EGET_BUTTON_CLICKED && event.GUIEvent.Caller) {
+		const int id = event.GUIEvent.Caller->getID() - kChoiceBase;
+		if(event.GUIEvent.Caller->getParent() == choice_win && id >= 0 && id < static_cast<int>(choice_actions.size())) {
+			auto act = choice_actions[id];
+			CloseChoice();
+			act();
+			return true;
+		}
+	}
+	if(choice_win && choice_win->isVisible() && event.EventType == irr::EET_KEY_INPUT_EVENT && event.KeyInput.PressedDown && event.KeyInput.Key == irr::KEY_ESCAPE) {
+		CloseChoice();
+		return true;
+	}
+	// attack pick: the next click names the monster attacked (any opponent's board)
 	if(picking) {
 		if(event.EventType == irr::EET_KEY_INPUT_EVENT && event.KeyInput.PressedDown && event.KeyInput.Key == irr::KEY_ESCAPE) {
 			EndPick();
@@ -1201,37 +1337,17 @@ bool OnMouse(const irr::SEvent& event) {
 				return true;
 			}
 			if(ev == irr::EMIE_LMOUSE_LEFT_UP) {
-				const irr::core::vector2di m(event.MouseInput.X, event.MouseInput.Y);
 				const auto& br = BR();
-				for(size_t i = 0; i < rects.chip.size() && i < chip_seat.size(); ++i)
-					if(rects.chip[i].isPointInside(m) && Opponent(chip_seat[i])) {
-						CommitPick(chip_seat[i], nullptr);
-						return true;
-					}
-				for(const auto& sp : direct_spots)
-					if(sp.rect.isPointInside(m)) {
-						CommitPick(sp.seat, nullptr);
-						return true;
-					}
 				if(off_hover_seat != NONE && Opponent(off_hover_seat)) {
-					const uint8_t s = off_hover_seat;
 					if(off_hover_card && off_hover_card->location == LOCATION_MZONE)
-						CommitPick(s, off_hover_card);
-					else if(!SeatHasMonsters(s))
-						CommitPick(s, nullptr);
+						CommitPick(off_hover_seat, off_hover_card);
 					return true;
 				}
 				auto& d = mainGame->dField;
 				const int fi = FieldIndex(br.target_seat);
-				if(fi >= 0 && Opponent(br.target_seat)) {
-					if(d.hovered_card && d.hovered_card->controler == fi && d.hovered_card->location == LOCATION_MZONE) {
-						CommitPick(br.target_seat, d.hovered_card);
-						return true;
-					}
-					if(d.hovered_location && d.hovered_controler == fi && !SeatHasMonsters(br.target_seat)) {
-						CommitPick(br.target_seat, nullptr);
-						return true;
-					}
+				if(fi >= 0 && Opponent(br.target_seat) && d.hovered_card && d.hovered_card->controler == fi && d.hovered_card->location == LOCATION_MZONE) {
+					CommitPick(br.target_seat, d.hovered_card);
+					return true;
 				}
 				EndPick(); // a click anywhere else: back to normal play
 				return false;
@@ -1455,7 +1571,8 @@ void AutoTest() {
 				ClientCard* tgt = nullptr;
 				if(Offstage(seat)) { for(auto* c : off[seat].mzone) if(c) { tgt = c; break; } }
 				else if(const int fi = FieldIndex(seat); fi >= 0) { for(auto* c : d.mzone[fi]) if(c) { tgt = c; break; } }
-				if(BeginAttackPick(d.attackable_cards[0])) {
+				if(OpponentCount() >= 2) {
+					StartPick(d.attackable_cards[0]);
 					if(!CommitPick(seat, tgt)) Trace("ATTACKPICK commit refused");
 				} else
 					Trace("ATTACKPICK begin refused");

@@ -54,6 +54,8 @@ void DrawAttackPick();            // gMutex held: DIRECT ATTACK marks on empty o
 bool OnBattleCmd();               // after the target switch: declare the same attack again
 bool OnYesNo(uint64_t desc);      // "direct attack?" (desc 31)
 bool OnSelectCard();              // the attack target
+bool BeginTargetChoice(ClientCard* card, int response); // a field-targeting activation: which opponent's board?
+bool OnIdleCmd();                 // after its target switch: activate the same card again
 void AutoTest();                  // BR_AUTOTEST=<bot>,<bot>,...: host, spectate, add the bots, start
 
 }

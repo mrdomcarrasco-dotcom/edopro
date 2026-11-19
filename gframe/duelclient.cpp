@@ -1963,6 +1963,9 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 					mainGame->dField.extra_act[pcard->controler] = true;
 			}
 		}
+		// Battle Royal "use it on": the target switched, activate the same card again
+		if(mainGame->dInfo.br.active && brc::OnIdleCmd())
+			return false;
 		std::lock_guard<epro::mutex> lock(mainGame->gMutex);
 		if(BufferIO::Read<uint8_t>(pbuf)) {
 			mainGame->btnBP->setVisible(true);
