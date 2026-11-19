@@ -1141,7 +1141,7 @@ void AutoTest() {
 			}
 			break;
 		}
-		if(!cycleTable)
+		if(!cycleTable || Wide())
 			break;
 		// once per opening: list a graveyard from the table (the window must sit above it), then close the list
 		static uint32_t pileAt = 0, pileClose = 0;

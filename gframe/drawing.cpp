@@ -776,6 +776,17 @@ void Game::DrawStatus(ClientCard* pcard) {
 		return skin::DUELFIELD_CARD_LEVEL_VAL;
 	};
 
+	// Battle Royal 2x2: cards are half size, so one number per card (ATK, or DEF in defence), no level line
+	if(brc::Wide()) {
+		const bool def = (pcard->position & POS_DEFENSE) && !(pcard->type & TYPE_LINK);
+		const auto& str = def ? pcard->defstring : pcard->atkstring;
+		const auto dim = adFont->getDimensionustring(str);
+		const int padx = ResizeX(2), pady = ResizeY(1);
+		mdfx::Pill(irr::core::recti(x1 - dim.Width / 2 - padx, y1 - pady, x1 + dim.Width / 2 + padx, y1 + dim.Height + pady));
+		DrawShadowText(adFont, str, irr::core::recti(x1 - dim.Width / 2, y1, x1 + dim.Width / 2, y1 + 1), Resize(1, 1, 1, 1),
+					   def ? GetDefColor() : GetAtkColor(), 0xff000000, true);
+		return;
+	}
 	const auto atk = adFont->getDimensionustring(pcard->atkstring);
 
 	const auto slash = adFont->getDimensionustring(L"/");
