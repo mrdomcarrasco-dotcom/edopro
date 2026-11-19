@@ -869,6 +869,9 @@ void ClientField::GetCardDrawCoordinates(ClientCard* pcard, irr::core::vector3df
 		}
 	} else {
 		auto ShouldCardShow = [pcard] {
+			// Battle Royal: only your own hand (and revealed cards) face-up, whatever card data reached us
+			if(!brc::HandVisible(pcard))
+				return false;
 			return pcard->code && (!mainGame->dInfo.isReplay || !gGameConfig->hideHandsInReplays || pcard->is_public || pcard->is_hovered);
 		};
 		auto SetHoverState = [&] {

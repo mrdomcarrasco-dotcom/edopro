@@ -438,6 +438,7 @@ uint32_t off_shown = 0; // card info shown from an offstage board
 uint8_t off_hover_seat = NONE;          // offstage board under the mouse (main thread, set by MapMouse)
 ClientCard* off_hover_card = nullptr;   // ...and its card under the mouse (cards live in the pool until Reset)
 bool picking = false;                   // attack pick: Attack was chosen, the next click picks seat + target
+uint8_t drawing_off_seat = NONE;        // DrawOffstage: the seat whose frozen board is in the field lists right now
 
 irr::core::matrix4 ColumnMatrix(int col) {
 	irr::core::matrix4 toCentre, sc, out;
@@ -620,6 +621,17 @@ void HoverOffstage(const irr::core::vector3df& pt) {
 }
 }
 
+bool HandVisible(const ClientCard* c) {
+	const auto& br = BR();
+	if(!br.active || !c || c->is_public || mainGame->dInfo.isReplay)
+		return true;
+	if(br.my_seat >= 4)
+		return false; // spectating: no hands
+	if(drawing_off_seat != NONE)
+		return drawing_off_seat == br.my_seat;
+	const int p = (c->overlayTarget ? c->overlayTarget->controler : c->controler) & 1;
+	return (br.slot_seat[mainGame->LocalPlayer(p) & 1] & 3) == br.my_seat;
+}
 bool Wide() { return wide.on; }
 const irr::core::matrix4& Board(int p) { return wide.board[p & 1]; }
 const irr::core::matrix4& Column(int c) { return wide.column[c & 1]; }
@@ -682,6 +694,7 @@ void DrawOffstage() {
 		wide.handPlain[k] = seat == BR().my_seat;
 		auto& d = mainGame->dField;
 		SwapOff(o);
+		drawing_off_seat = seat;
 		if(!o.placed) {
 			o.placed = true;
 			auto place = [&](ClientCard* c) {
@@ -720,6 +733,7 @@ void DrawOffstage() {
 			}
 		}
 		mainGame->DrawPlayerLabels(k);
+		drawing_off_seat = NONE;
 		SwapOff(o);
 		wide.board[k] = savedBoard;
 		wide.handPlain[k] = savedHand;

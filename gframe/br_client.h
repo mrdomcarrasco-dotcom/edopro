@@ -30,6 +30,7 @@ bool OnMouse(const irr::SEvent& event); // HUD hover/click; true = consumed
 // --- Battle Royal 2x2 field (main thread, gMutex held): EDOPRO's field once per column, your team at the
 // bottom and the other two seats across. Every 3D draw of live player p goes through Board(p); the boards of
 // the two offstage seats are drawn from their last MSG_SEAT_BOARD by DrawOffstage. Identity when off.
+bool HandVisible(const ClientCard* c); // Battle Royal: a hand card may show its face (yours, or revealed)
 bool Wide();
 const irr::core::matrix4& Board(int p);
 const irr::core::matrix4& Column(int c);
