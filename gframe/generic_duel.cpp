@@ -908,7 +908,7 @@ void GenericDuel::TPResult(DuelPlayer* dp, uint8_t tp) {
 		for(size_t seat = 0; seat < br_players.size(); ++seat) {
 			if(!br_players[seat] || !br_players[seat]->br_client)
 				continue;
-			const auto cmd = epro::format("Duel.BattleRoyalHuman({})", seat);
+			const std::string cmd = "Duel.BattleRoyalHuman(" + std::to_string(seat) + ")";
 			OCG_LoadScript(pduel, cmd.data(), static_cast<uint32_t>(cmd.size()), " ");
 		}
 	}
