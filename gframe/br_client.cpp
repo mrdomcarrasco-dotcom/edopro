@@ -389,7 +389,7 @@ bool InTable(const irr::core::vector2di& m) {
 namespace {
 struct WideState {
 	bool on = false;
-	float scale = 0.56f, gap = 0.18f, dy = 0.45f;
+	float scale = 0.50f, gap = 0.10f, dy = 0.30f, ystretch = 1.0f;
 	irr::core::matrix4 board[2], column[2];
 	bool handPlain[2]{};
 	uint8_t quad_seat[4]{ NONE, NONE, NONE, NONE }; // near-left, near-right, far-left, far-right
@@ -412,7 +412,7 @@ uint32_t off_shown = 0; // card info shown from an offstage board
 irr::core::matrix4 ColumnMatrix(int col) {
 	irr::core::matrix4 toCentre, sc, out;
 	toCentre.setTranslation(-kCentre);
-	sc.setScale(wide.scale);
+	sc.setScale(irr::core::vector3df(wide.scale, wide.scale * wide.ystretch, wide.scale));
 	const float half = 9.6f * wide.scale / 2.f + wide.gap / 2.f;
 	out.setTranslation(kCentre + irr::core::vector3df(col == 0 ? -half : half, wide.dy, 0.f));
 	return out * sc * toCentre;
@@ -436,10 +436,11 @@ void UpdateWide() {
 	static bool tuned = false;
 	if(!tuned) {
 		tuned = true;
-		// BR_WIDE=scale,gap,lift for tuning
+		// BR_WIDE=scale,gap,lift[,depth stretch] for tuning
 		if(const char* e = std::getenv("BR_WIDE"); e && *e) {
-			float a = 0, b = 0, c = 0;
-			if(std::sscanf(e, "%f,%f,%f", &a, &b, &c) == 3 && a > 0.2f && a < 1.f) { wide.scale = a; wide.gap = b; wide.dy = c; }
+			float a = 0, b = 0, c = 0, d = 1.f;
+			const int got = std::sscanf(e, "%f,%f,%f,%f", &a, &b, &c, &d);
+			if(got >= 3 && a > 0.2f && a < 1.f) { wide.scale = a; wide.gap = b; wide.dy = c; if(got == 4 && d > 0.5f && d < 2.f) wide.ystretch = d; }
 		}
 	}
 	// seats: your team on the near row (you on the left), everyone else across; 1v3 / 3v1 spill one seat over
