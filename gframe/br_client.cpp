@@ -1017,7 +1017,7 @@ void DrawAttackPick() {
 		}
 		const auto sc = coll->getScreenCoordinatesFrom3DPosition(pt);
 		const std::wstring text = L"DIRECT ATTACK";
-		const auto dim = mainGame->adFont->getDimension(text);
+		const auto dim = mainGame->adFont->getDimension(text.data());
 		const int padX = mainGame->Scale(14), padY = mainGame->Scale(6);
 		const irr::core::recti r(sc.X - dim.Width / 2 - padX, sc.Y - dim.Height / 2 - padY, sc.X + dim.Width / 2 + padX, sc.Y + dim.Height / 2 + padY);
 		mdfx::Pill(r);
