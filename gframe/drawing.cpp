@@ -1103,6 +1103,8 @@ void Game::DrawSpec() {
 										   0xffff4040, 0xff40ff40, 0xff4040ff, 0xff40ffff, 0xffff40ff, 0xffffff40, 0xffffffff, 0xff808080, 0xff404040};
 		if(chatTiming[i] > 0.0f) {
 			chatTiming[i] -= (float)delta_time * 60.0f / 1000.0f;
+			if(brc::TableOpen()) // the Battle Royal table covers the field: no chat lines over it
+				continue;
 			if(dInfo.isStarted && i >= 5)
 				continue;
 			if(!showChat && i > 2)

@@ -1309,6 +1309,17 @@ gui::CGUITTFont* FitFont(float maxH) {
 	}
 	return best ? best : F.plate;
 }
+// the largest font whose digits fit maxH and whose text fits maxW
+gui::CGUITTFont* FitFontW(float maxH, const std::wstring& text, float maxW) {
+	gui::CGUITTFont* best = nullptr;
+	u32 bestH = 0;
+	for(auto* f : { F.big, F.lp, F.plate, F.num, F.name, F.tag }) {
+		if(!f) continue;
+		const u32 h = TextSize(f, L"0123456789").Height;
+		if(h <= maxH && h > bestH && (float)TextSize(f, text).Width <= maxW) { best = f; bestH = h; }
+	}
+	return best ? best : (F.tag ? F.tag : F.plate);
+}
 // one plate: x0,y0 top-left, w,h size; mirrored = opponent (ring on the right)
 void Plate(float x0, float y0, float w, float h, bool mirrored, int lp, int startlp, const std::wstring& name,
 		   bool active, int p, float dtMs) {
@@ -1625,12 +1636,13 @@ bool DrawSeatHud(const SeatHud& in, SeatHudRects& out) {
 		const std::wstring nm = Fit(cnf, c.name, tx1 - tx0);
 		const auto nd = TextSize(cnf, nm);
 		Text(cnf, nm, tx0, top + (cnf == nameF ? 0.f : 2.f * sy), c.alive ? video::SColor(255, 250, 240, 215) : video::SColor(255, 150, 140, 130), 0.85f, 1, &clip);
-		const float rowY = top + nd.Height, gaugeY0 = cy0 + ch * 0.79f, gaugeY1 = cy0 + ch * 0.85f;
+		const float rowY = top + nd.Height, gaugeY0 = cy0 + ch * 0.80f, gaugeY1 = cy0 + ch * 0.85f;
 		if(c.alive) {
-			auto* lf = FitFont((gaugeY0 - rowY) * 0.86f);
 			const std::wstring lps = std::to_wstring(std::max(0, c.lp));
+			// LP: as big as fits between the name and the gauge, leaving room for the hand count
+			auto* lf = FitFontW((gaugeY0 - rowY) * 0.92f, lps, (tx1 - tx0) * 0.66f);
 			const auto ld = TextSize(lf, lps);
-			const float ly = rowY + (gaugeY0 - rowY - ld.Height) * 0.5f;
+			const float ly = std::min(rowY + (gaugeY0 - rowY - ld.Height) * 0.5f, gaugeY0 - ld.Height - 1.f);
 			const video::SColor lc = c.lp * 4 < in.startlp ? video::SColor(255, 255, 140, 120) : video::SColor(255, 250, 244, 228);
 			Text(lf, lps, tx0, ly, lc, 0.85f, 1, &clip);
 			const float gh = (gaugeY0 - rowY) * 0.5f;
