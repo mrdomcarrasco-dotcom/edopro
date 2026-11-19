@@ -20,6 +20,7 @@
 #include "fmt.h"
 #include "windbot.h"
 #include "windbot_panel.h"
+#include "CGUIImageButton/CGUIImageButton.h"
 
 namespace ygo {
 namespace brc {
