@@ -1,4 +1,7 @@
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+#include <string>
 #include "generic_duel.h"
 #include "br_board.h"
 #include "netserver.h"
@@ -1485,6 +1488,25 @@ int GenericDuel::Analyze(CoreUtils::Packet packet) {
 	return return_value;
 }
 void GenericDuel::GetResponse(DuelPlayer* dp, void* pdata, uint32_t len) {
+	// only the player the engine is waiting for may answer. With more than two duelists (Battle Royal, tag) a
+	// stray or late answer from anyone else would be fed to the engine as that player's, come back as MSG_RETRY
+	// and end the duel for everybody.
+	const bool awaited = last_response < 2 && cur_player[last_response] == dp && dp->state == CTOS_RESPONSE;
+	if(const char* trace = std::getenv("BR_AUTOTEST"); trace && *trace) {
+		auto nm = [](const DuelPlayer* p) {
+			std::string out;
+			for(int i = 0; p && i < 20 && p->name[i]; ++i) out += p->name[i] < 128 ? static_cast<char>(p->name[i]) : '?';
+			return out;
+		};
+		if(FILE* f = std::fopen("br-server.log", "a")) {
+			const DuelPlayer* want = last_response < 2 ? cur_player[last_response] : nullptr;
+			std::fprintf(f, "response from %s (type %d) awaited %s state %d len %u%s\n", nm(dp).data(), static_cast<int>(dp->type),
+						 nm(want).data(), static_cast<int>(dp->state), len, awaited ? "" : "  IGNORED");
+			std::fclose(f);
+		}
+	}
+	if(!awaited)
+		return;
 	last_replay.Write<uint8_t>(len, false);
 	last_replay.WriteData(pdata, len);
 	OCG_DuelSetResponse(pduel, pdata, len);
