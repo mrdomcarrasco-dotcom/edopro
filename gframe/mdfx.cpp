@@ -41,6 +41,7 @@ video::ITexture* tSeal = nullptr;    // circle + five-point star
 video::ITexture* tLink = nullptr;    // chain link (an oval ring)
 video::ITexture* tVig = nullptr;     // screen vignette: clear centre, dark edges (alpha)
 video::ITexture* tArrow = nullptr;   // Link arrow chevron, pointing right
+video::ITexture* tFeather = nullptr; // square frame: clear inside, opaque toward the edges (feathers a square crop)
 bool enabled = true;
 std::map<uint32_t, Cutin> listed;    // mdfx.conf
 std::map<uint32_t, video::ITexture*> artCache;
@@ -150,6 +151,10 @@ void BuildTextures() {
 	});
 	tVig = MakeTex("mdfx_vig", 256, 256, [](float u, float v) {
 		return smooth(0.62f, 1.42f, std::sqrt(u * u * 0.85f + v * v));
+	});
+	tFeather = MakeTex("mdfx_feather", 128, 128, [](float u, float v) {
+		const float e = std::max(std::fabs(u), std::fabs(v));
+		return smooth(0.62f, 1.f, e) * 0.7f + smooth(0.6f, 1.f, std::sqrt(u * u + v * v) * 0.78f) * 0.3f;
 	});
 	tArrow = MakeTex("mdfx_arrow", 64, 64, [](float u, float v) {
 		// a filled chevron: the triangle u in [-0.6, 0.75], |v| < (0.75 - u) * 0.8, with a soft edge
@@ -1196,6 +1201,7 @@ void DrawCutin() {
 			// a soft dark rim so the square crop sits in the scene instead of floating on it
 			BandQuad(tGlow, p, w * 1.25f, h * 1.25f, sh.top, sh.bot, col(0.55f, { 255, 0, 0, 0 }), false);
 			BandQuad(art, illo2.second, p, w, h, sh.top, sh.bot, gain(0.92f * (0.3f + 0.7f * smooth(0.f, 480.f, t))), false);
+			BandQuad(tFeather, p, w * 1.01f, h * 1.01f, sh.top, sh.bot, col(0.92f, { 255, 6, 8, 16 }), false);
 			// tendrils of energy whipping in from the edges
 			if(bt > 100.f && bt < 420.f) {
 				const float k = clamp01((bt - 100.f) / 200.f);
@@ -1308,10 +1314,13 @@ void DrawMethod() {
 	MethodColors(m, ca, cb);
 	const core::vector2df c = Center() + core::vector2df(0.07f * W, -0.03f * H); // the board sits right of the info panel
 	const float dim = smooth(0.f, 220.f, t) * (1.f - smooth(D - 300.f, D, t));
-	FillRect(0, 0, (s32)W, (s32)H, col(0.58f * dim, { 255, 4, 6, 14 }));
-	Quad(tVig, Center(), W * 1.05f, H * 1.05f, 0.f, col(0.6f * dim, { 255, 0, 0, 0 }), false);
+	FillRect(0, 0, (s32)W, (s32)H, col(0.70f * dim, { 255, 4, 6, 14 }));
+	Quad(tVig, Center(), W * 1.05f, H * 1.05f, 0.f, col(0.7f * dim, { 255, 0, 0, 0 }), false);
 	const float fig = smooth(120.f, 420.f, t) * (1.f - smooth(D - 420.f, D - 120.f, t)); // the method figure
-	const float R = 0.30f * H;
+	const float R = 0.34f * H;
+	// coloured fog round the figure: alpha-blended, so it tints the dark instead of adding light
+	Quad(tGlow, c, R * 3.4f, R * 2.6f, 0.f, col(0.32f * fig, ca), false);
+	Quad(tGlow, c, R * 2.0f, R * 1.6f, 0.f, col(0.22f * fig, cb), false);
 	const float spin = t * 0.0011f;
 	// 1. the figure
 	switch(m) {
@@ -1324,46 +1333,50 @@ void DrawMethod() {
 				const float ang = arm * 2.f * PI / 3.f + spin * 2.4f + u * 3.6f;
 				const float r = R * (0.12f + 0.9f * u);
 				const core::vector2df q = c + core::vector2df(std::cos(ang) * r, std::sin(ang) * r * 0.82f);
-				const float sz = (22.f + 34.f * u) * s;
-				Quad(tGlow, q, sz, sz, 0.f, addc(fig * 0.2f * (1.f - 0.6f * u), lerpc(cb, ca, u)), true);
+				const float sz = (30.f + 50.f * u) * s;
+				Quad(tGlow, q, sz, sz, 0.f, addc(fig * 0.5f * (1.f - 0.5f * u), lerpc(cb, ca, u)), true);
+				if(i % 3 == 0) Quad(tSpark, q, sz * 0.5f, sz * 0.5f, ang, addc(fig * 0.45f, { 255, 255, 236, 210 }), true);
 			}
-		Quad(tRing, c, R * 1.05f, R * 0.86f, spin, addc(0.22f * fig, ca), true);
+		Quad(tRing, c, R * 1.15f, R * 0.94f, spin, addc(0.45f * fig, ca), true);
+		Quad(tRing, c, R * 0.7f, R * 0.58f, -spin * 1.6f, addc(0.35f * fig, cb), true);
 		break;
 	}
 	case M_SYNCHRO: {
 		// a column of light with three tilted rings sliding down it; the level's stars stream through
-		Quad(tStreak, c, H * 1.1f, 0.10f * H, PI / 2.f, addc(0.2f * fig, cb), true);
-		Quad(tStreak, c, H * 1.1f, 0.025f * H, PI / 2.f, addc(0.3f * fig, ca), true);
+		Quad(tStreak, c, H * 1.2f, 0.16f * H, PI / 2.f, addc(0.32f * fig, cb), true);
+		Quad(tStreak, c, H * 1.2f, 0.035f * H, PI / 2.f, addc(0.5f * fig, ca), true);
 		for(int i = 0; i < 3; ++i) {
 			const float k = std::fmod(t * 0.0007f + i / 3.f, 1.f);
 			const float y = c.Y - 0.36f * H + k * 0.72f * H;
 			const float a = fig * std::sin(k * PI);
-			Quad(tRing, { c.X, y }, R * 1.2f, R * 0.30f, 0.f, addc(0.42f * a, ca), true);
-			Quad(tRing, { c.X, y }, R * 1.22f, R * 0.32f, 0.f, addc(0.2f * a, cb), true);
+			Quad(tRing, { c.X, y }, R * 1.6f, R * 0.40f, 0.f, addc(0.75f * a, ca), true);
+			Quad(tRing, { c.X, y }, R * 1.64f, R * 0.43f, 0.f, addc(0.4f * a, cb), true);
+			Quad(tGlow, { c.X, y }, R * 1.7f, R * 0.5f, 0.f, addc(0.12f * a, cb), true);
 		}
 		const int n = std::max(3, std::min(12, ov.stars));
 		for(int i = 0; i < n; ++i) {
 			const float k = std::fmod(t * 0.0009f + hash(i + 31), 1.f);
 			const core::vector2df q(c.X + (hash(i + 5) - 0.5f) * 0.10f * H, c.Y - 0.42f * H + k * 0.84f * H);
 			const float a = fig * std::sin(k * PI);
-			Quad(tStar, q, 16.f * s, 16.f * s, 0.f, col(a, { 255, 255, 226, 120 }), false);
-			Quad(tGlow, q, 34.f * s, 34.f * s, 0.f, addc(0.25f * a, cb), true);
+			Quad(tStar, q, 24.f * s, 24.f * s, 0.f, col(a, { 255, 255, 226, 120 }), false);
+			Quad(tGlow, q, 48.f * s, 48.f * s, 0.f, addc(0.4f * a, cb), true);
 		}
 		break;
 	}
 	case M_XYZ: {
 		// a galaxy: a dark core, a gold disc of orbiting motes, two thin orbits
 		Quad(tGlow, c, R * 1.6f, R * 1.6f, 0.f, col(0.8f * fig, { 255, 2, 2, 10 }), false);
-		Quad(tRays, c, R * 2.3f, R * 2.3f, -spin * 0.5f, addc(0.08f * fig, ca), true);
+		Quad(tRays, c, R * 2.5f, R * 2.5f, -spin * 0.5f, addc(0.16f * fig, ca), true);
 		for(int i = 0; i < 46; ++i) {
 			const float ang = hash(i) * 2.f * PI + spin * (1.6f + hash(i + 9));
 			const float r = R * (0.35f + 0.75f * hash(i + 17));
 			const core::vector2df q = c + core::vector2df(std::cos(ang) * r, std::sin(ang) * r * 0.36f);
-			const float sz = (8.f + 16.f * hash(i + 23)) * s;
-			Quad(tGlow, q, sz, sz, 0.f, addc(fig * 0.45f, i % 4 ? ca : cb), true);
+			const float sz = (14.f + 24.f * hash(i + 23)) * s;
+			Quad(tGlow, q, sz, sz, 0.f, addc(fig * 0.8f, i % 4 ? ca : cb), true);
+			if(i % 5 == 0) Quad(tSpark, q, sz * 0.8f, sz * 0.8f, 0.f, addc(fig * 0.5f, { 255, 255, 240, 200 }), true);
 		}
-		Quad(tRing, c, R * 1.9f, R * 0.66f, 0.f, addc(0.2f * fig, ca), true);
-		Quad(tRing, c, R * 1.4f, R * 0.48f, 0.f, addc(0.16f * fig, cb), true);
+		Quad(tRing, c, R * 1.9f, R * 0.66f, 0.f, addc(0.45f * fig, ca), true);
+		Quad(tRing, c, R * 1.4f, R * 0.48f, 0.f, addc(0.35f * fig, cb), true);
 		break;
 	}
 	case M_LINK: {
@@ -1378,34 +1391,38 @@ void DrawMethod() {
 			const float lightT = 380.f + lit * 90.f;
 			const float k = on ? smooth(lightT, lightT + 140.f, t) : 0.f;
 			if(on) ++lit;
-			Quad(tArrow, q, 46.f * s, 46.f * s, ang, col(0.85f * fig, { 255, 24, 34, 52 }), false);
+			Quad(tArrow, q, 60.f * s, 60.f * s, ang, col(0.9f * fig, { 255, 14, 20, 34 }), false);
+			Quad(tArrow, q, 48.f * s, 48.f * s, ang, col(0.8f * fig, { 255, 52, 72, 104 }), false);
 			if(k > 0.f) {
-				Quad(tArrow, q, 40.f * s, 40.f * s, ang, col(fig * k, cb), false);
-				Quad(tGlow, q, 90.f * s, 90.f * s, 0.f, addc(0.3f * fig * k, cb), true);
+				Quad(tArrow, q, 48.f * s, 48.f * s, ang, col(fig * k, cb), false);
+				Quad(tGlow, q, 120.f * s, 120.f * s, 0.f, addc(0.5f * fig * k, cb), true);
 				// circuit line from the arrow into the centre
-				Line(c + dir * (R * 0.2f), q - dir * (22.f * s), 5.f * s, addc(0.3f * fig * k, ca));
+				Line(c + dir * (R * 0.2f), q - dir * (26.f * s), 7.f * s, addc(0.55f * fig * k, ca));
 			}
 		}
 		// the circuit frame: a square on its corner
 		for(int i = 0; i < 4; ++i) {
 			const float a0 = i * PI / 2.f + spin * 0.3f, a1 = a0 + PI / 2.f;
 			Line(c + core::vector2df(std::cos(a0), std::sin(a0)) * (R * 0.62f), c + core::vector2df(std::cos(a1), std::sin(a1)) * (R * 0.62f),
-				 6.f * s, addc(0.32f * fig, ca));
+				 8.f * s, addc(0.6f * fig, ca));
+			Line(c + core::vector2df(std::cos(a0), std::sin(a0)) * (R * 0.70f), c + core::vector2df(std::cos(a1), std::sin(a1)) * (R * 0.70f),
+				 4.f * s, addc(0.35f * fig, ca));
 		}
-		Quad(tGlow, c, R * 1.1f, R * 1.1f, 0.f, addc(0.12f * fig, ca), true);
+		Quad(tGlow, c, R * 1.1f, R * 1.1f, 0.f, addc(0.2f * fig, ca), true);
 		break;
 	}
 	case M_RITUAL: {
 		// a ritual circle on the floor: two rings and rotating ticks, light rising from it
 		const core::vector2df fl = c + core::vector2df(0.f, 0.17f * H);
-		Quad(tRing, fl, R * 2.1f, R * 0.7f, 0.f, addc(0.4f * fig, ca), true);
-		Quad(tRing, fl, R * 1.7f, R * 0.56f, 0.f, addc(0.3f * fig, cb), true);
+		Quad(tRing, fl, R * 2.1f, R * 0.7f, 0.f, addc(0.7f * fig, ca), true);
+		Quad(tRing, fl, R * 1.7f, R * 0.56f, 0.f, addc(0.5f * fig, cb), true);
+		Quad(tGlow, fl, R * 2.2f, R * 0.8f, 0.f, addc(0.15f * fig, ca), true);
 		for(int i = 0; i < 24; ++i) {
 			const float ang = i * 2.f * PI / 24.f + spin * 0.6f;
 			const core::vector2df dir(std::cos(ang), std::sin(ang) * 0.333f);
-			Line(fl + dir * (R * 0.86f), fl + dir * (R * 0.98f), 4.f * s, addc(0.3f * fig, ca));
+			Line(fl + dir * (R * 0.86f), fl + dir * (R * 0.98f), 5.f * s, addc(0.55f * fig, ca));
 		}
-		Quad(tStreak, fl - core::vector2df(0.f, 0.25f * H), 0.55f * H, R * 1.4f, PI / 2.f, addc(0.16f * fig, ca), true);
+		Quad(tStreak, fl - core::vector2df(0.f, 0.25f * H), 0.55f * H, R * 1.4f, PI / 2.f, addc(0.28f * fig, ca), true);
 		while(ov.acc > 30.f && fig > 0.3f) {
 			ov.acc -= 30.f;
 			const float a = frand(0.f, 2.f * PI);
@@ -1418,7 +1435,8 @@ void DrawMethod() {
 		// the two scales as pillars of light and a pendulum swinging between them, leaving an arc
 		for(int side = -1; side <= 1; side += 2) {
 			const core::vector2df pl = c + core::vector2df(side * 0.34f * H, 0.f);
-			Quad(tStreak, pl, H * 1.0f, 0.06f * H, PI / 2.f, addc(0.3f * fig, side < 0 ? ca : cb), true);
+			Quad(tStreak, pl, H * 1.1f, 0.16f * H, PI / 2.f, addc(0.3f * fig, side < 0 ? ca : cb), true);
+			Quad(tStreak, pl, H * 1.1f, 0.04f * H, PI / 2.f, addc(0.6f * fig, side < 0 ? ca : cb), true);
 		}
 		const core::vector2df pivot = c - core::vector2df(0.f, 0.36f * H);
 		const float swing = std::sin(t * 0.0062f) * 0.75f;
@@ -1426,11 +1444,12 @@ void DrawMethod() {
 			const float u = i / 25.f;
 			const float ang = PI / 2.f + (u - 0.5f) * 1.5f;
 			const core::vector2df q = pivot + core::vector2df(std::cos(ang), std::sin(ang)) * (0.56f * H);
-			Quad(tGlow, q, 20.f * s, 20.f * s, 0.f, addc(0.25f * fig, lerpc(ca, cb, u)), true);
+			Quad(tGlow, q, 30.f * s, 30.f * s, 0.f, addc(0.5f * fig, lerpc(ca, cb, u)), true);
 		}
 		const core::vector2df bob = pivot + core::vector2df(std::cos(PI / 2.f + swing), std::sin(PI / 2.f + swing)) * (0.56f * H);
-		Line(pivot, bob, 3.f * s, addc(0.3f * fig, { 255, 230, 230, 240 }));
-		Quad(tGlow, bob, 70.f * s, 70.f * s, 0.f, addc(0.4f * fig, lerpc(ca, cb, 0.5f + swing * 0.6f)), true);
+		Line(pivot, bob, 4.f * s, addc(0.5f * fig, { 255, 230, 230, 240 }));
+		Quad(tGlow, bob, 110.f * s, 110.f * s, 0.f, addc(0.6f * fig, lerpc(ca, cb, 0.5f + swing * 0.6f)), true);
+		Quad(tSpark, bob, 60.f * s, 60.f * s, t * 0.002f, addc(0.5f * fig, { 255, 255, 250, 240 }), true);
 		break;
 	}
 	default: break;
@@ -1470,6 +1489,12 @@ void DrawMethod() {
 			Quad(tGlow, p, w * 2.1f, h * 1.7f, 0.f, addc(0.32f * a, ca), true);
 			Quad(tGlow, p, w * 1.25f, h * 1.12f, 0.f, col(0.5f * a, { 255, 0, 0, 0 }), false);
 			Quad(card, Full(card), p, w, h, 0.f, col(a, { 255, 255, 255, 255 }), false);
+			// an energised rim in the method's colour
+			const float rim = a * (0.45f + 0.15f * std::sin(t * 0.012f));
+			const core::vector2df q0 = p + core::vector2df(-w / 2.f, -h / 2.f), q1 = p + core::vector2df(w / 2.f, -h / 2.f);
+			const core::vector2df q2 = p + core::vector2df(w / 2.f, h / 2.f), q3 = p + core::vector2df(-w / 2.f, h / 2.f);
+			Line(q0, q1, 10.f * s, addc(rim, ca)); Line(q1, q2, 10.f * s, addc(rim, ca));
+			Line(q2, q3, 10.f * s, addc(rim, ca)); Line(q3, q0, 10.f * s, addc(rim, ca));
 			// a single soft sheen across the face as it arrives (no white-out)
 			const float sheen = clamp01((t - tin - 120.f) / 380.f);
 			if(sheen > 0.f && sheen < 1.f)
