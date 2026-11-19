@@ -1687,8 +1687,8 @@ struct TableCtx {
 	std::vector<TableHit>* hits;
 	const TableView* in;
 };
-video::ITexture* Back(bool far) {
-	auto* t = mainGame->imageManager.tCover[far ? 1 : 0];
+video::ITexture* Back(bool across) {
+	auto* t = mainGame->imageManager.tCover[across ? 1 : 0];
 	return t ? t : mainGame->imageManager.tCover[0];
 }
 // an empty zone: a dark recess with a faint edge and an optional label
@@ -1713,15 +1713,15 @@ void Count(const TableCtx& k, float x, float y, uint32_t n, video::SColor c) {
 	Text(k.tagF, s, x - d.Width / 2.f, y - d.Height / 2.f, col(k.a, { 255, 250, 240, 220 }), 0.f, 0);
 }
 // one card, centred; defence position lies sideways (scaled to stay inside its zone)
-void CardAt(const TableCtx& k, const TableCard& c, float cx, float cy, float w, float h, bool far, bool own) {
+void CardAt(const TableCtx& k, const TableCard& c, float cx, float cy, float w, float h, bool across, bool own) {
 	video::ITexture* tex = nullptr;
 	const bool show = c.code && (!c.faceDown || own);
 	if(show) tex = Art(c.code);
-	if(!tex) tex = Back(far);
+	if(!tex) tex = Back(across);
 	const float rot = c.defense ? PI * 0.5f : 0.f, s = c.defense ? 0.78f : 1.f;
 	// Xyz materials peek out behind it
 	for(int m = std::min(c.materials, 3); m > 0; --m)
-		Quad(Back(far), { cx + m * 2.5f * k.sx, cy - m * 2.5f * k.sy }, w * s, h * s, rot, col(k.a * 0.85f, { 255, 150, 140, 120 }), false);
+		Quad(Back(across), { cx + m * 2.5f * k.sx, cy - m * 2.5f * k.sy }, w * s, h * s, rot, col(k.a * 0.85f, { 255, 150, 140, 120 }), false);
 	const u8 lum = (u8)(c.faceDown && own ? 150 : 255);
 	Quad(tex, { cx, cy }, w * s, h * s, rot, col(k.a, { 255, lum, lum, lum }), false);
 	if(c.faceDown && own) {
@@ -1764,21 +1764,21 @@ void DrawBoard(const TableCtx& k, const TableSeat& s, int idx, const core::recti
 	if(k.in->focusSeat == idx)
 		Quad(tGlow, { (x0 + x1) / 2.f, (y0 + y1) / 2.f }, bw * 1.2f, bh * 1.25f, 0.f, addc(k.a * 0.25f, { 255, 255, 240, 200 }), true);
 	// panel
-	const video::SColor pTop = s.far ? video::SColor(255, 24, 14, 16) : video::SColor(255, 14, 20, 26), pBot(255, 7, 8, 11);
-	drv->draw2DRectangle(R, col(k.a * 0.93f, s.far ? pTop : pBot), col(k.a * 0.93f, s.far ? pTop : pBot), col(k.a * 0.93f, s.far ? pBot : pTop), col(k.a * 0.93f, s.far ? pBot : pTop));
+	const video::SColor pTop = s.across ? video::SColor(255, 24, 14, 16) : video::SColor(255, 14, 20, 26), pBot(255, 7, 8, 11);
+	drv->draw2DRectangle(R, col(k.a * 0.93f, s.across ? pTop : pBot), col(k.a * 0.93f, s.across ? pTop : pBot), col(k.a * 0.93f, s.across ? pBot : pTop), col(k.a * 0.93f, s.across ? pBot : pTop));
 	const video::SColor edge = s.alive && s.turn ? kTurnC : s.alive && s.target ? kTargetC : accent;
 	Frame(R, col(k.a * (hov ? 1.f : 0.75f), edge));
 	Frame(core::recti(R.UpperLeftCorner + core::vector2di(2, 2), R.LowerRightCorner - core::vector2di(2, 2)), col(k.a * 0.22f, edge));
 	// header (outer edge), hand strip next to it, zones toward the centre of the table
 	const float hh = std::min(30.f * k.sy, bh * 0.15f), handH = std::min(32.f * k.sy, bh * 0.15f), pad = 5.f * k.u;
-	const float hy0 = s.far ? y0 : y1 - hh, hy1 = hy0 + hh;
-	const float handY0 = s.far ? hy1 + 2.f * k.sy : hy0 - 2.f * k.sy - handH;
-	const float zy0 = s.far ? handY0 + handH + pad : y0 + pad, zy1 = s.far ? y1 - pad : handY0 - pad;
+	const float hy0 = s.across ? y0 : y1 - hh, hy1 = hy0 + hh;
+	const float handY0 = s.across ? hy1 + 2.f * k.sy : hy0 - 2.f * k.sy - handH;
+	const float zy0 = s.across ? handY0 + handH + pad : y0 + pad, zy1 = s.across ? y1 - pad : handY0 - pad;
 	// header strip
 	{
 		const video::SColor hb0 = lerpc(edge, { 255, 10, 10, 12 }, 0.78f), hb1(255, 10, 11, 14);
-		drv->draw2DRectangle(core::rect<s32>((s32)x0 + 1, (s32)hy0 + (s.far ? 1 : 0), (s32)x1 - 1, (s32)hy1 - (s.far ? 0 : 1)), col(k.a, hb0), col(k.a, hb1), col(k.a, hb0), col(k.a, hb1));
-		const float gy = s.far ? hy1 - 2.f * k.sy : hy0;
+		drv->draw2DRectangle(core::rect<s32>((s32)x0 + 1, (s32)hy0 + (s.across ? 1 : 0), (s32)x1 - 1, (s32)hy1 - (s.across ? 0 : 1)), col(k.a, hb0), col(k.a, hb1), col(k.a, hb0), col(k.a, hb1));
+		const float gy = s.across ? hy1 - 2.f * k.sy : hy0;
 		const float g = k.in->startlp > 0 ? clamp01((float)s.lp / (float)k.in->startlp) : 0.f;
 		FillRect((s32)x0 + 1, (s32)gy, (s32)x1 - 1, (s32)(gy + 2.f * k.sy), { (u32)(200 * k.a), 4, 5, 7 });
 		if(s.alive && g > 0.f) {
@@ -1833,7 +1833,7 @@ void DrawBoard(const TableCtx& k, const TableSeat& s, int idx, const core::recti
 		if(nmax > 10.f) {
 			const std::wstring nm = Fit(k.nameF, s.name, nmax);
 			const auto nd = TextSize(k.nameF, nm);
-			const std::wstring dk = s.deck.empty() ? L"" : Fit(k.smallF, s.deck, nmax);
+			const std::wstring dk = s.deckName.empty() ? L"" : Fit(k.smallF, s.deckName, nmax);
 			const auto dd = TextSize(k.smallF, dk);
 			const float total = nd.Height + (dk.empty() ? 0.f : dd.Height * 0.92f);
 			const float ny = rcy - total / 2.f;
@@ -1856,9 +1856,9 @@ void DrawBoard(const TableCtx& k, const TableSeat& s, int idx, const core::recti
 	const float gx0 = x0 + (bw - gridW) / 2.f, gy0 = zy0 + (zh - gridH) / 2.f;
 	const bool own = s.isYou;
 	auto cellC = [&](int col_, int row) {
-		// row 0 = extra monster zones (centre side), 1 = monsters, 2 = spells/traps (outer side); far boards mirror
-		const int c = s.far ? 6 - col_ : col_;
-		const int r = s.far ? 2 - row : row;
+		// row 0 = extra monster zones (centre side), 1 = monsters, 2 = spells/traps (outer side); across boards mirror
+		const int c = s.across ? 6 - col_ : col_;
+		const int r = s.across ? 2 - row : row;
 		return core::vector2df(gx0 + c * (cw + g) + cw / 2.f, gy0 + r * (chh + g) + chh / 2.f);
 	};
 	const video::SColor mz(255, 200, 150, 90), st(255, 90, 170, 160), fz(255, 120, 200, 110), pile(255, 170, 160, 140);
@@ -1866,7 +1866,7 @@ void DrawBoard(const TableCtx& k, const TableSeat& s, int idx, const core::recti
 		const auto p = cellC(c, r);
 		Slot(k, p.X, p.Y, cw, chh, tint, card.present ? nullptr : label);
 		if(card.present) {
-			CardAt(k, card, p.X, p.Y, cw, chh, s.far, own);
+			CardAt(k, card, p.X, p.Y, cw, chh, s.across, own);
 			if(card.code && (!card.faceDown || own))
 				Hit(k, TableHit::CARD, Box(p.X, p.Y, card.defense ? chh * 0.78f : cw, card.defense ? cw * 0.78f : chh), idx, loc, seq, card.code);
 		}
@@ -1886,10 +1886,10 @@ void DrawBoard(const TableCtx& k, const TableSeat& s, int idx, const core::recti
 		if(n) {
 			if(back) {
 				for(int d = std::min<int>(3, (int)(n / 8)); d > 0; --d)
-					Quad(Back(s.far), { p.X + d * 1.2f * k.sx, p.Y - d * 1.2f * k.sy }, cw, chh, 0.f, col(k.a * 0.8f, { 255, 160, 150, 140 }), false);
-				Quad(Back(s.far), { p.X, p.Y }, cw, chh, 0.f, col(k.a, { 255, 255, 255, 255 }), false);
+					Quad(Back(s.across), { p.X + d * 1.2f * k.sx, p.Y - d * 1.2f * k.sy }, cw, chh, 0.f, col(k.a * 0.8f, { 255, 160, 150, 140 }), false);
+				Quad(Back(s.across), { p.X, p.Y }, cw, chh, 0.f, col(k.a, { 255, 255, 255, 255 }), false);
 			} else if(top.code) {
-				CardAt(k, top, p.X, p.Y, cw, chh, s.far, true);
+				CardAt(k, top, p.X, p.Y, cw, chh, s.across, true);
 			}
 			Count(k, p.X, p.Y + chh * 0.5f - 6.f * k.sy, n, pile);
 			if(loc)
@@ -1922,7 +1922,7 @@ void DrawBoard(const TableCtx& k, const TableSeat& s, int idx, const core::recti
 			for(size_t i = 0; i < n; ++i) {
 				const auto& c = s.hand[i];
 				auto* tex = c.code ? Art(c.code) : nullptr;
-				Quad(tex ? tex : Back(s.far), { hx, midY }, hcw, hch, 0.f, col(k.a, { 255, 255, 255, 255 }), false);
+				Quad(tex ? tex : Back(s.across), { hx, midY }, hcw, hch, 0.f, col(k.a, { 255, 255, 255, 255 }), false);
 				if(c.code) {
 					// overlapping cards: each one's hit area is its visible slice
 					const float vis = i + 1 < n ? std::min(step, hcw) : hcw;
@@ -1984,7 +1984,7 @@ void DrawTable(const TableView& in, std::vector<TableHit>& hits) {
 	// rows: across the table on top, your side at the bottom, a centre line between them
 	std::vector<int> farRow, nearRow;
 	for(int i = 0; i < (int)in.seats.size(); ++i)
-		(in.seats[i].far ? farRow : nearRow).push_back(i);
+		(in.seats[i].across ? farRow : nearRow).push_back(i);
 	const float top = ay0 + 4.f * k.sy + titleH + pad, bottom = ay1 - pad;
 	const float midH = 22.f * k.sy;
 	const float rowH = (bottom - top - midH - pad * 2.f) / 2.f;
@@ -2038,8 +2038,8 @@ void DrawTable(const TableView& in, std::vector<TableHit>& hits) {
 			const auto& r = boardR[i];
 			const auto& o = boardR[other];
 			const float cx = (r.UpperLeftCorner.X + r.LowerRightCorner.X) / 2.f;
-			if(in.seats[i].far != in.seats[other].far)
-				return core::vector2df(cx, in.seats[i].far ? (float)r.LowerRightCorner.Y : (float)r.UpperLeftCorner.Y);
+			if(in.seats[i].across != in.seats[other].across)
+				return core::vector2df(cx, in.seats[i].across ? (float)r.LowerRightCorner.Y : (float)r.UpperLeftCorner.Y);
 			const bool left = o.UpperLeftCorner.X > r.UpperLeftCorner.X;
 			return core::vector2df(left ? (float)r.LowerRightCorner.X : (float)r.UpperLeftCorner.X, (r.UpperLeftCorner.Y + r.LowerRightCorner.Y) / 2.f);
 		};

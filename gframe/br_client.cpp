@@ -281,7 +281,7 @@ void BuildTable(mdfx::TableView& v) {
 			if(s != me) farS.push_back(s);
 	}
 	table_seat.clear();
-	auto add = [&](uint8_t s, bool far) {
+	auto add = [&](uint8_t s, bool across) {
 		const auto& seat = br.seats[s];
 		mdfx::TableSeat t;
 		const int fi = FieldIndex(s);
@@ -299,7 +299,7 @@ void BuildTable(mdfx::TableView& v) {
 		}
 		const auto& nm = SplitName(seat.name);
 		t.name = nm.name;
-		t.deck = nm.deck;
+		t.deckName = nm.deck;
 		t.team = br.teams ? seat.team : -1;
 		t.colorIndex = s;
 		t.placement = seat.placement;
@@ -309,7 +309,7 @@ void BuildTable(mdfx::TableView& v) {
 		t.isYou = s == br.my_seat;
 		t.ally = Allies(s, me) && !t.isYou;
 		t.canTarget = CanTarget(s);
-		t.far = far;
+		t.across = across;
 		table_seat.push_back(s);
 		v.seats.push_back(std::move(t));
 	};

@@ -128,7 +128,7 @@ struct TableCard {
 	int materials = 0;      // Xyz materials under it
 };
 struct TableSeat {
-	std::wstring name, deck; // "Kaiba", "DSOD Blue-Eyes"
+	std::wstring name, deckName; // "Kaiba", "DSOD Blue-Eyes"
 	int lp = 0;
 	int team = -1;           // -1 free-for-all
 	int colorIndex = 0;
@@ -136,7 +136,7 @@ struct TableSeat {
 	bool alive = true, turn = false, target = false, isYou = false, ally = false;
 	bool canTarget = false;  // our turn: this seat may become the target
 	bool known = true;       // its board has been seen
-	bool far = false;        // across the table (top row)
+	bool across = false;     // across the table (top row); not "far": a Windows macro
 	TableCard mz[7], sz[6];  // sz[5] = field zone
 	std::vector<TableCard> hand;
 	uint32_t deck = 0, extra = 0, extraUp = 0, grave = 0, banished = 0;
