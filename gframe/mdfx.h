@@ -73,6 +73,14 @@ struct HudInfo {
 	int turn = 0;
 };
 bool DrawHud(const HudInfo& info); // false -> caller draws the stock LP bars
+
+// --- Master Duel layout (mdfx.conf "layout md", the default; "layout classic" = EDOPRO's) ---
+// a centred, closer board, the card-info column as a slide-in drawer, LP plates in the corners and the duel buttons
+// in a compact stack on the right. game.cpp switches it on per frame (not in a Battle Royal yet).
+bool MdLayout();          // configured
+bool LayoutActive();      // in effect this frame
+void SetLayoutActive(bool on);
+void LayoutFrustum(float& left, float& right, float& bottom, float& top);
 // dark gold-edged backdrop for small field text (ATK/DEF, pile counts); no-op when effects are off
 void Pill(const irr::core::recti& r);
 // the big LP change number ("-3000", "+500") as title-art digits; false -> caller draws EDOPRO's text

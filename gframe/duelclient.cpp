@@ -3038,7 +3038,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		mainGame->btnM2->setSubElement(false);
 		mainGame->btnEP->setVisible(false);
 		mainGame->btnEP->setSubElement(false);
-		if(gGameConfig->alternative_phase_layout) {
+		if(gGameConfig->alternative_phase_layout || mdfx::LayoutActive()) {
 			mainGame->btnDP->setVisible(true);
 			mainGame->btnSP->setVisible(true);
 			mainGame->btnM1->setVisible(true);
@@ -4646,7 +4646,7 @@ void DuelClient::SendResponse() {
 			delete pcard;
 		mainGame->dField.limbo_temp.clear();
 		mainGame->dField.ClearCommandFlag();
-		if(gGameConfig->alternative_phase_layout) {
+		if(gGameConfig->alternative_phase_layout || mdfx::LayoutActive()) {
 			mainGame->btnBP->setEnabled(false);
 			mainGame->btnM2->setEnabled(false);
 			mainGame->btnEP->setEnabled(false);

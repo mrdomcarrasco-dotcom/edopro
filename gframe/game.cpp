@@ -2000,11 +2000,81 @@ irr::core::vector3df getUpVector() {
 }
 
 static const auto defaultProjection = BuildProjectionMatrix(CAMERA_LEFT, CAMERA_RIGHT);
+// an off-centre perspective frustum (the Master Duel layout's framing, mdfx::LayoutFrustum)
+static irr::core::matrix4 BuildFrustum(irr::f32 left, irr::f32 right, irr::f32 bottom, irr::f32 top) {
+	irr::core::matrix4 m;
+	m.buildProjectionMatrixPerspectiveLH(right - left, top - bottom, 1.0f, 100.0f);
+	m[8] = (left + right) / (left - right);
+	m[9] = (top + bottom) / (bottom - top);
+	return m;
+}
+// Master Duel layout, per frame in a duel: the card-info column (card picture + Card info/Log/Chat tabs) becomes a
+// drawer that slides in from the left while a card is hovered or its info just changed, or the mouse is at the left
+// edge / over the drawer; the duel buttons sit in a compact stack on the right. Restores everything when it ends.
+static void MdLayoutTick(Game& g, float dtMs, bool active) {
+	static bool applied = false;
+	static float shown = 1.f;
+	static irr::s32 appliedOff = 0;
+	static irr::core::recti lastSet[2];
+	static irr::video::ITexture* lastPic = nullptr;
+	static float sinceChange = 1e9f;
+	irr::gui::IGUIElement* drawer[2] = { g.wCardImg, g.wInfos };
+	auto shiftTo = [&](irr::s32 off) {
+		for(int i = 0; i < 2; ++i) {
+			auto cur = drawer[i]->getRelativePosition();
+			// EDOPRO moved it since our last frame (resize): that is the new home
+			auto home = (cur == lastSet[i]) ? cur - irr::core::vector2di(appliedOff, 0) : cur;
+			auto next = home + irr::core::vector2di(off, 0);
+			if(next != cur) drawer[i]->setRelativePosition(next);
+			lastSet[i] = next;
+		}
+		appliedOff = off;
+	};
+	if(!active) {
+		if(applied) { shiftTo(0); applied = false; }
+		return;
+	}
+	applied = true;
+	// the drawer
+	auto* pic = g.imgCard->getImage();
+	if(pic != lastPic) { lastPic = pic; sinceChange = 0.f; }
+	else sinceChange += dtMs;
+	const auto mouse = g.device->getCursorControl()->getPosition();
+	const irr::s32 width = std::max(drawer[0]->getRelativePosition().LowerRightCorner.X - appliedOff,
+									drawer[1]->getRelativePosition().LowerRightCorner.X - appliedOff) + g.Scale(8);
+	const bool overDrawer = shown > 0.5f && mouse.X >= 0 && mouse.X < width + appliedOff;
+	const bool want = g.dField.hovered_card != nullptr || sinceChange < 1800.f || (mouse.X >= 0 && mouse.X < g.Scale(10)) || overDrawer;
+	shown += (want ? 1.f : -1.f) * dtMs / 170.f;
+	shown = shown < 0.f ? 0.f : (shown > 1.f ? 1.f : shown);
+	const float u = 1.f - shown, e = 1.f - u * u * u;
+	shiftTo(-static_cast<irr::s32>((1.f - e) * width));
+	// the duel buttons: one compact column on the right, under the phase buttons
+	auto place = [&](irr::gui::IGUIElement* el, irr::s32 y0, irr::s32 y1) {
+		const auto r = g.Resize(930, y0, 1020, y1);
+		if(el && el->getRelativePosition() != r) el->setRelativePosition(r);
+	};
+	place(g.btnCancelOrFinish, 366, 394);
+	place(g.btnLeaveGame, 402, 428);
+	place(g.btnRestartSingle, 432, 458);
+	place(g.btnChainIgnore, 468, 494);
+	place(g.btnChainAlways, 498, 524);
+	place(g.btnChainWhenAvail, 528, 554);
+}
 
 bool Game::MainLoop() {
 	irr::core::matrix4 mProjection;
 	camera = smgr->addCameraSceneNode(0);
 	auto UpdateAspectRatio = [this]() {
+		if(mdfx::LayoutActive()) {
+			float l, r, b, t;
+			mdfx::LayoutFrustum(l, r, b, t);
+			if(gGameConfig->keep_aspect_ratio) {
+				const float c = (l + r) / 2.f, half = (t - b) * ((float)window_size.Width / (float)window_size.Height) / 2.f;
+				l = c - half; r = c + half;
+			}
+			camera->setProjectionMatrix(BuildFrustum(l, r, b, t));
+			return;
+		}
 		if(!gGameConfig->keep_aspect_ratio) {
 			camera->setProjectionMatrix(defaultProjection);
 			return;
@@ -2177,6 +2247,17 @@ bool Game::MainLoop() {
 			brc::BeginFrame(); // Battle Royal: a viewed (frozen) board takes the top half while drawing
 			mdfx::Update(delta_time);
 			{
+				// Master Duel layout on/off (not in a Battle Royal until its HUD adopts it)
+				const bool md = mdfx::MdLayout() && !dInfo.br.active;
+				if(md != mdfx::LayoutActive()) {
+					mdfx::SetLayoutActive(md);
+					UpdateAspectRatio();
+					SetPhaseButtons(true);
+					dField.RefreshHandHitboxes();
+				}
+				MdLayoutTick(*this, (float)delta_time, md);
+			}
+			{
 				const auto shake = mdfx::CameraOffset();
 				camera->setPosition(getPosition() + shake);
 				camera->setTarget(irr::core::vector3df(FIELD_X, 0, 0) + shake);
@@ -2233,6 +2314,8 @@ bool Game::MainLoop() {
 			fpsCounter->setRelativePosition(Resize(1024 - fpsCounterWidth, 620, 1024, 640));
 		}
 		wBtnSettings->setVisible(!(is_building || is_siding || dInfo.isInDuel || open_file));
+		if(!dInfo.isInDuel)
+			MdLayoutTick(*this, 0.f, false);
 		EnableMaterial2D(true);
 		DrawGUI();
 		DrawSpec();
@@ -3315,7 +3398,7 @@ int Game::GetMasterRule(uint64_t param, uint32_t forbidden, int* truerule) {
 		return 2;
 }
 void Game::ResizePhaseButtons() {
-	if(gGameConfig->alternative_phase_layout) {
+	if((gGameConfig->alternative_phase_layout || mdfx::LayoutActive())) {
 		wPhase->setRelativePosition(Resize(940, 80, 990, 340));
 		return;
 	} else if(!gGameConfig->keep_aspect_ratio) {
@@ -3350,17 +3433,17 @@ void Game::ResizePhaseButtons() {
 }
 void Game::SetPhaseButtons(bool visibility) {
 	if(visibility) {
-		btnDP->setVisible(gGameConfig->alternative_phase_layout || btnDP->isSubElement());
-		btnSP->setVisible(gGameConfig->alternative_phase_layout || btnSP->isSubElement());
-		btnM1->setVisible(gGameConfig->alternative_phase_layout || btnM1->isSubElement());
-		btnM2->setVisible(gGameConfig->alternative_phase_layout || btnM2->isSubElement());
-		btnBP->setVisible(gGameConfig->alternative_phase_layout || btnBP->isSubElement());
-		btnEP->setVisible(gGameConfig->alternative_phase_layout || btnEP->isSubElement());
+		btnDP->setVisible((gGameConfig->alternative_phase_layout || mdfx::LayoutActive()) || btnDP->isSubElement());
+		btnSP->setVisible((gGameConfig->alternative_phase_layout || mdfx::LayoutActive()) || btnSP->isSubElement());
+		btnM1->setVisible((gGameConfig->alternative_phase_layout || mdfx::LayoutActive()) || btnM1->isSubElement());
+		btnM2->setVisible((gGameConfig->alternative_phase_layout || mdfx::LayoutActive()) || btnM2->isSubElement());
+		btnBP->setVisible((gGameConfig->alternative_phase_layout || mdfx::LayoutActive()) || btnBP->isSubElement());
+		btnEP->setVisible((gGameConfig->alternative_phase_layout || mdfx::LayoutActive()) || btnEP->isSubElement());
 	}
 
 	// set the phase window to the "default" size so that it's easier to
 	// work with the relative button positions by using non scaled values
-	if(gGameConfig->alternative_phase_layout)
+	if((gGameConfig->alternative_phase_layout || mdfx::LayoutActive()))
 		wPhase->setRelativePosition({ 940, 80, 990, 340 });
 	else if(dInfo.HasFieldFlag(DUEL_3_COLUMNS_FIELD | DUEL_EMZONE))
 		wPhase->setRelativePosition({ 480, 290, 855, 350 });
@@ -3368,7 +3451,7 @@ void Game::SetPhaseButtons(bool visibility) {
 		wPhase->setRelativePosition({ 480, 310, 855, 330 });
 
 	auto UpdatePhaseButtons = [&] {
-		if(gGameConfig->alternative_phase_layout) {
+		if((gGameConfig->alternative_phase_layout || mdfx::LayoutActive())) {
 			btnDP->setRelativePosition({ 0, 0, 50, 20 });
 			btnSP->setRelativePosition({ 0, 40, 50, 60 });
 			btnM1->setRelativePosition({ 0, 80, 50, 100 });

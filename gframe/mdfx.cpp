@@ -43,6 +43,8 @@ video::ITexture* tVig = nullptr;     // screen vignette: clear centre, dark edge
 video::ITexture* tArrow = nullptr;   // Link arrow chevron, pointing right
 video::ITexture* tFeather = nullptr; // square frame: clear inside, opaque toward the edges (feathers a square crop)
 bool enabled = true;
+bool mdLayout = true;                // mdfx.conf "layout md|classic"
+bool layoutActive = false;
 std::map<uint32_t, Cutin> listed;    // mdfx.conf
 std::map<uint32_t, video::ITexture*> artCache;
 std::mt19937 rng{ 20261110u };
@@ -495,6 +497,7 @@ void LoadConf() {
 		std::string a, b;
 		ss >> a >> b;
 		if(a == "effects") { enabled = (b != "off" && b != "0"); continue; }
+		if(a == "layout") { mdLayout = (b != "classic" && b != "off" && b != "0"); continue; }
 		uint32_t code = 0;
 		try { code = (uint32_t)std::stoul(a); } catch(...) { continue; }
 		Cutin k = Cutin::NONE;
@@ -528,6 +531,17 @@ void Init(video::IVideoDriver* driver, const Fonts& fonts) {
 	LoadConf();
 }
 bool Enabled() { return enabled && drv; }
+bool MdLayout() { return Enabled() && mdLayout; }
+bool LayoutActive() { return layoutActive; }
+void SetLayoutActive(bool on) { layoutActive = on; }
+// EDOPRO's frustum is -0.90..0.45 x -0.42..0.42 (the board pushed right of a 300 px info column, empty sky above the
+// opponent's hand). The board spans about -0.48..0.45 x -0.41..0.27 in view space (camera at 4.2/8/7.8): centre on
+// it and fill the screen like Master Duel, ~1.2x larger, with a margin for the side controls.
+void LayoutFrustum(float& left, float& right, float& bottom, float& top) {
+	bottom = -0.415f; top = 0.285f;
+	const float cx = -0.02f, half = (top - bottom) * 1.6f / 2.f;
+	left = cx - half; right = cx + half;
+}
 
 float EaseMove(float t) { return enabled ? outQuint(t) : t; }
 float MoveLift(float distance) { return (!enabled || distance < 0.6f) ? 0.f : std::min(0.5f, distance * 0.08f); }
@@ -1886,6 +1900,21 @@ bool DrawHud(const HudInfo& info) {
 	const auto ps = hud.plate->getOriginalSize();
 	const float w = h * (float)ps.Width / (float)ps.Height;
 	const float leftX = 322.f * sx, rightX = 1018.f * sx - w, y = 4.f * sy;
+	if(layoutActive) {
+		// Master Duel: you bottom-left, the opponent top-right, the turn count beside the opponent's plate
+		const float myY = H - h - 6.f * sy;
+		Plate(6.f * sx, myY, w, h, false, info.lp[0], info.startlp, info.name[0], info.myTurn, 0, dtMs);
+		Plate(rightX, y, w, h, true, info.lp[1], info.startlp, info.name[1], !info.myTurn, 1, dtMs);
+		if(hud.turn) {
+			const float ms = h * 0.95f, mx = rightX - ms * 0.62f, my = y + h * 0.5f;
+			Quad(hud.turn, { mx, my }, ms, ms, 0.f, video::SColor(255, 255, 255, 255), false);
+			const std::wstring tn = std::to_wstring(info.turn);
+			auto* f = FitFont(ms * 0.36f);
+			const auto d = TextSize(f, tn);
+			Text(f, tn, mx - d.Width / 2.f, my - d.Height / 2.f - 1.f, { 255, 250, 236, 200 }, 0.9f, 2);
+		}
+		return true;
+	}
 	Plate(leftX, y, w, h, false, info.lp[0], info.startlp, info.name[0], info.myTurn, 0, dtMs);
 	Plate(rightX, y, w, h, true, info.lp[1], info.startlp, info.name[1], !info.myTurn, 1, dtMs);
 	// turn medallion between the plates
