@@ -936,7 +936,12 @@ void Game::DrawGUI() {
 			fit = fadingList.erase(fthis);
 		}
 	}
+	// Battle Royal table: above the field, under the GUI windows (card lists, prompts); the field's own
+	// buttons and the chat are hidden for this draw only
+	brc::DrawTable();
+	brc::CoverGui(true);
 	env->drawAll();
+	brc::CoverGui(false);
 }
 void Game::DrawSpec() {
 	const auto drawrect2 = ResizeWin(574, 150, 574 + CARD_IMG_WIDTH, 150 + CARD_IMG_HEIGHT);

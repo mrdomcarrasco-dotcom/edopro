@@ -1,10 +1,10 @@
 #ifndef BR_CLIENT_H
 #define BR_CLIENT_H
 
-// Battle Royal client side (DUEL_BATTLE_ROYAL): the seat HUD, viewing any seat's board, free targeting
-// and the BR_AUTOTEST test aid. The engine keeps two seats "on the field" (engine slots 0/1); every other
-// seat's board is frozen offstage and arrives as MSG_SEAT_BOARD. Viewing one of them draws it in the
-// top half of the field (read-only) for as long as the view is on; the live cards stay untouched.
+// Battle Royal client side (DUEL_BATTLE_ROYAL): the seat HUD, the table (every seat's board at once), free
+// targeting and the BR_AUTOTEST test aid. The engine keeps two seats "on the field" (engine slots 0/1); every
+// other seat's board is frozen offstage and arrives as MSG_SEAT_BOARD. The table draws the live seats from the
+// field and the offstage ones from their last board, your side at the bottom; teammates' hands stay hidden.
 
 #include <cstddef>
 #include <cstdint>
@@ -26,7 +26,10 @@ void BeginFrame();                // gMutex held: swap the viewed board into the
 void EndFrame();                  // ...and back before the lock is released
 bool DrawHud(int turn);           // false: not a Battle Royal, draw the normal HUD
 bool OnMouse(const irr::SEvent& event); // HUD hover/click; true = consumed
-bool Viewing();                   // the top half shows a frozen board
+bool Viewing();                   // legacy (the 3D field always shows the live board now): false
+bool TableOpen();                 // the table is open (or still fading)
+void DrawTable();                 // gMutex held: before env->drawAll, so windows open above it
+void CoverGui(bool on);           // hide the field buttons / chat under the table while drawAll runs
 ClientCard* ViewCard(uint32_t location, uint32_t sequence); // a card of the viewed board under the mouse
 bool ShowViewPile(uint32_t location); // card list of the viewed board's GY / banished / Extra Deck
 void RequestTarget(uint8_t seat); // our turn: switch the target to this seat

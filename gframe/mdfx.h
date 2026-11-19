@@ -87,6 +87,7 @@ struct SeatChip {
 	bool canTarget = false; // it is our turn and we may switch our target to this seat
 	bool targetHover = false;
 	bool isYou = false;
+	bool ally = false;      // your teammate
 	int team = -1;          // team battle royal: 0 / 1, else -1
 	int colorIndex = 0;     // per-seat accent in a free-for-all
 };
@@ -103,14 +104,64 @@ struct SeatHud {
 	std::wstring fieldName;
 	bool backHover = false;
 	bool targetHint = false; // our turn just started: pulse the seats we can target
+	bool bottomTurnLive = false; // the big plate's seat is on the field (its LP is live)
+	bool tableOpen = false;
+	bool tableHover = false;
 };
 struct SeatHudRects {
 	std::vector<irr::core::recti> chip, target;
-	irr::core::recti back;
+	irr::core::recti back, table;
 };
 bool DrawSeatHud(const SeatHud& in, SeatHudRects& out);
 // short notice under the HUD ("Kaiba targets Joey", "You are under attack", eliminations); kind 0 info, 1 you, 2 out
 void SeatToast(const std::wstring& text, int kind);
+
+// --- Battle Royal table: every seat's board at once, your side at the bottom, theirs across the table ---
+struct TableCard {
+	uint32_t code = 0;      // 0: face-down or unknown (drawn as a card back)
+	bool present = false;
+	bool faceDown = false;  // set (its owner still sees the code)
+	bool defense = false;
+	bool monster = false;   // show ATK / DEF
+	bool linkMon = false;   // show ATK + link rating
+	int atk = 0, def = 0, link = 0;
+	int materials = 0;      // Xyz materials under it
+};
+struct TableSeat {
+	std::wstring name, deck; // "Kaiba", "DSOD Blue-Eyes"
+	int lp = 0;
+	int team = -1;           // -1 free-for-all
+	int colorIndex = 0;
+	int placement = 0;
+	bool alive = true, turn = false, target = false, isYou = false, ally = false;
+	bool canTarget = false;  // our turn: this seat may become the target
+	bool known = true;       // its board has been seen
+	bool far = false;        // across the table (top row)
+	TableCard mz[7], sz[6];  // sz[5] = field zone
+	std::vector<TableCard> hand;
+	uint32_t deck = 0, extra = 0, extraUp = 0, grave = 0, banished = 0;
+	TableCard graveTop, banishTop;
+};
+struct TableView {
+	std::vector<TableSeat> seats;
+	int startlp = 8000;
+	int turn = 0;
+	bool teams = false;
+	std::wstring caption;    // centre line: "TURN 3 · Kaiba attacks Mai"
+	float open = 1.f;        // 0..1 open animation
+	int hoverSeat = -1;      // board under the mouse
+	int hoverHit = -1;       // index into the hit list of the last frame
+	int focusSeat = -1;      // opened from a seat's plate: a brief highlight
+};
+struct TableHit {
+	enum Kind : uint8_t { CARD, PILE, TARGET, CLOSE, BOARD } kind = CARD;
+	irr::core::recti rect;
+	int seat = -1;
+	uint32_t location = 0, sequence = 0, code = 0;
+};
+// the region the table covers (screen pixels): everything right of the card-info column, under the top bar
+irr::core::recti TableArea();
+void DrawTable(const TableView& in, std::vector<TableHit>& hits);
 
 // --- test aids (environment variables, off unless set) ---
 // MDFX_AUTOPUZZLE=<puzzle path>: start that puzzle from the main menu. MDFX_CAPTURE=<dir>: write the
