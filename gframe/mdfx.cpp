@@ -1589,7 +1589,7 @@ bool DrawSeatHud(const SeatHud& in, SeatHudRects& out) {
 		const auto d = TextSize(f, tn);
 		Text(f, tn, medX - d.Width / 2.f, medY - d.Height / 2.f - 1.f, { 255, 250, 236, 200 }, 0.9f, 2);
 	}
-	{
+	if(in.tableButton) {
 		const std::wstring bt = in.tableOpen ? L"CLOSE TABLE" : L"TABLE";
 		const auto d = TextSize(tagF, bt);
 		const float bw = d.Width + 18.f * sx, bx = medX - bw / 2.f, by = y + h + 2.f * sy;

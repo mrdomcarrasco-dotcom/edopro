@@ -23,6 +23,7 @@
 #include "custom_skin_enum.h"
 #include "fmt.h"
 #include "mdfx.h"
+#include "br_client.h"
 
 namespace ygo {
 
@@ -755,6 +756,7 @@ void ClientField::GetChainDrawCoordinates(uint8_t controler, uint8_t location, u
 static void getCardScreenCoordinates(ClientCard* pcard) {
 	irr::core::matrix4 trans = mainGame->camera->getProjectionMatrix();
 	trans *= mainGame->camera->getViewMatrix();
+	trans *= brc::CardMatrix(pcard); // Battle Royal 2x2: the card's board
 	trans *= pcard->mTransform;
 	auto transform = [&trans, dim = (mainGame->driver->getCurrentRenderTargetSize() / 2)](irr::core::vector3df vec) {
 		irr::f32 transformedPos[4] = { vec.X, vec.Y, vec.Z, 1.0f };

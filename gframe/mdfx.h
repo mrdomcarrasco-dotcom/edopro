@@ -106,6 +106,7 @@ struct SeatHud {
 	bool targetHint = false; // our turn just started: pulse the seats we can target
 	bool bottomTurnLive = false; // the big plate's seat is on the field (its LP is live)
 	bool tableOpen = false;
+	bool tableButton = false; // the TABLE overlay is retired (2x2 field); kept behind this flag
 	bool tableHover = false;
 };
 struct SeatHudRects {

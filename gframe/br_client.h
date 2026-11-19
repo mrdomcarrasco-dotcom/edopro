@@ -26,6 +26,17 @@ void BeginFrame();                // gMutex held: swap the viewed board into the
 void EndFrame();                  // ...and back before the lock is released
 bool DrawHud(int turn);           // false: not a Battle Royal, draw the normal HUD
 bool OnMouse(const irr::SEvent& event); // HUD hover/click; true = consumed
+// --- Battle Royal 2x2 field (main thread, gMutex held): EDOPRO's field once per column, your team at the
+// bottom and the other two seats across. Every 3D draw of live player p goes through Board(p); the boards of
+// the two offstage seats are drawn from their last MSG_SEAT_BOARD by DrawOffstage. Identity when off.
+bool Wide();
+const irr::core::matrix4& Board(int p);
+const irr::core::matrix4& Column(int c);
+const irr::core::matrix4& CardMatrix(const ClientCard* c); // your own hand stays full size at the bottom
+irr::core::vector3df Point(int p, const irr::core::vector3df& v);
+irr::core::vector3df CardPoint(const ClientCard* c, const irr::core::vector3df& v);
+bool MapMouse(irr::core::vector3df& pt); // field point -> the space of the live board under it; false: none
+void DrawOffstage();
 bool Viewing();                   // legacy (the 3D field always shows the live board now): false
 bool TableOpen();                 // the table is open (or still fading)
 void DrawTable();                 // gMutex held: before env->drawAll, so windows open above it

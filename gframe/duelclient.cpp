@@ -3131,7 +3131,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		if((reason & REASON_DESTROY) && (previous.location & LOCATION_ONFIELD) && !(previous.location & LOCATION_OVERLAY)
 		   && previous.location != current.location && !mainGame->dInfo.isCatchingUp) {
 			if(ClientCard* dcard = mainGame->dField.GetCard(previous.controler, previous.location, previous.sequence)) {
-				if(const int frames = mdfx::Destroy(dcard->curPos))
+				if(const int frames = mdfx::Destroy(brc::CardPoint(dcard, dcard->curPos)))
 					mainGame->WaitFrameSignal(frames, lock);
 			}
 		}
@@ -3381,7 +3381,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 				// lands oversized and settles into the zone (special summons flash white, then cyan)
 				if(scard) {
 					mdfx::Pop(scard->popFrom, scard->popT, scard->popDur, 1.4f, 380.0f);
-					mdfx::SummonFlash(scard->curPos, false);
+					mdfx::SummonFlash(brc::CardPoint(scard, scard->curPos), false);
 				}
 				mainGame->WaitFrameSignal(26, lock);
 				return true;
@@ -3423,7 +3423,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 				// lands oversized and settles into the zone (special summons flash white, then cyan)
 				if(scard) {
 					mdfx::Pop(scard->popFrom, scard->popT, scard->popDur, 1.4f, 380.0f);
-					mdfx::SummonFlash(scard->curPos, true);
+					mdfx::SummonFlash(brc::CardPoint(scard, scard->curPos), true);
 				}
 				mainGame->WaitFrameSignal(26, lock);
 				return true;
@@ -3491,7 +3491,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			if(mdfx::CutinFor(code) == mdfx::Cutin::ORICHALCOS)
 				mainGame->WaitFrameSignal(mdfx::StartCutin(mdfx::Cutin::ORICHALCOS, code, cc == 1), lock);
 			const bool monster_effect = (pcard->type & TYPE_MONSTER) && !(pcard->location & LOCATION_SZONE);
-			mdfx::Activate(pcard->curPos, monster_effect);
+			mdfx::Activate(brc::CardPoint(pcard, pcard->curPos), monster_effect);
 			mainGame->showcardcode = code;
 			mainGame->showcarddif = 0;
 			mainGame->showcard = mdfx::Enabled() ? 0 : 1;
@@ -3566,7 +3566,7 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 						codes.push_back(chain.code);
 					mainGame->WaitFrameSignal(mdfx::ResolveDisplay(codes, ct, ct == (int)chains.size()), lock);
 				} else {
-					mdfx::ResolveGlow(chains[ct - 1].chain_card ? chains[ct - 1].chain_card->curPos : chains[ct - 1].chain_pos);
+					mdfx::ResolveGlow(chains[ct - 1].chain_card ? brc::CardPoint(chains[ct - 1].chain_card, chains[ct - 1].chain_card->curPos) : brc::Point(chains[ct - 1].controler & 1, chains[ct - 1].chain_pos));
 					mainGame->WaitFrameSignal(20, lock);
 				}
 				mainGame->dField.chains[ct - 1].solved = true;
@@ -3921,19 +3921,23 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		info2.controler = mainGame->LocalPlayer(info2.controler);
 		std::unique_lock<epro::mutex> lock(mainGame->gMutex);
 		float sy;
-		float xa = mainGame->dField.attacker->curPos.X;
-		float ya = mainGame->dField.attacker->curPos.Y;
+		// Battle Royal 2x2: both ends on their own boards
+		const auto apos = brc::CardPoint(mainGame->dField.attacker, mainGame->dField.attacker->curPos);
+		float xa = apos.X;
+		float ya = apos.Y;
 		float xd, yd;
 		if (!is_direct) {
 			mainGame->dField.attack_target = mainGame->dField.GetCard(info2.controler, info2.location, info2.sequence);
 			event_string = epro::format(gDataManager->GetSysString(1619), gDataManager->GetName(mainGame->dField.attacker->code),
 				gDataManager->GetName(mainGame->dField.attack_target->code));
-			xd = mainGame->dField.attack_target->curPos.X;
-			yd = mainGame->dField.attack_target->curPos.Y;
+			const auto dpos = brc::CardPoint(mainGame->dField.attack_target, mainGame->dField.attack_target->curPos);
+			xd = dpos.X;
+			yd = dpos.Y;
 		} else {
 			event_string = epro::format(gDataManager->GetSysString(1620), gDataManager->GetName(mainGame->dField.attacker->code));
-			xd = 3.95f;
-			yd = (info1.controler == 0) ? -3.5f : 3.5f;
+			const auto dpos = brc::Point(info1.controler == 0 ? 1 : 0, { 3.95f, (info1.controler == 0) ? -3.5f : 3.5f, 0.0f });
+			xd = dpos.X;
+			yd = dpos.Y;
 		}
 		sy = std::sqrt((xa - xd) * (xa - xd) + (ya - yd) * (ya - yd)) / 2.0f;
 		mainGame->atk_t.set((xa + xd) / 2, (ya + yd) / 2, 0);

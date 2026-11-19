@@ -2490,10 +2490,14 @@ void ClientField::GetHoverField(const irr::core::vector2d<irr::s32>& mouse) {
 		}
 		hovered_location = 0;
 	} else {
-		const auto coords = MouseToField(mouse);
+		auto coords = MouseToField(mouse);
+		hovered_location = 0;
+		// Battle Royal 2x2: back into the field space of the live board under the mouse; offstage boards only
+		// show their cards' info
+		if(brc::Wide() && !brc::MapMouse(coords))
+			return;
 		const auto& boardx = coords.X;
 		const auto& boardy = coords.Y;
-		hovered_location = 0;
 		if(boardx >= matManager.getExtra()[0][0].Pos.X && boardx <= matManager.getExtra()[0][1].Pos.X) {
 			if(boardy >= matManager.getExtra()[0][0].Pos.Y && boardy <= matManager.getExtra()[0][2].Pos.Y) {
 				hovered_controler = 0;

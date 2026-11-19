@@ -94,6 +94,24 @@ void Game::DrawBackGround() {
 	};
 
 	//draw field
+	if(brc::Wide()) {
+		// Battle Royal 2x2: the field once per column; field spells over their owner's half
+		for(int c = 0; c < 2; ++c) {
+			driver->setTransform(irr::video::ETS_WORLD, brc::Column(c));
+			DrawTextureRect(matManager.vField, imageManager.tField[three_columns][tfield]);
+		}
+		if(gGameConfig->draw_field_spell) {
+			for(int p = 0; p < 2; ++p) {
+				if(!dField.szone[p][5] || !(dField.szone[p][5]->position & POS_FACEUP))
+					continue;
+				if(auto* texture = imageManager.GetTextureField(dField.szone[p][5]->code)) {
+					driver->setTransform(irr::video::ETS_WORLD, brc::Board(p));
+					DrawTextureRect(p == 0 ? matManager.vFieldSpell1[three_columns] : matManager.vFieldSpell2[three_columns], texture);
+				}
+			}
+		}
+		driver->setTransform(irr::video::ETS_WORLD, brc::Board(0));
+	} else
 	DrawTextureRect(matManager.vField, DrawFieldSpell() ? imageManager.tFieldTransparent[three_columns][tfield] : imageManager.tField[three_columns][tfield]);
 
 	driver->setMaterial(matManager.mBackLine);
@@ -101,6 +119,7 @@ void Game::DrawBackGround() {
 	if((dInfo.curMsg == MSG_SELECT_PLACE || dInfo.curMsg == MSG_SELECT_DISFIELD || dInfo.curMsg == MSG_HINT) && dField.selectable_field) {
 		irr::video::SColor outline_color = skin::DUELFIELD_SELECTABLE_FIELD_OUTLINE_VAL;
 		uint32_t filter = 0x1;
+		driver->setTransform(irr::video::ETS_WORLD, brc::Board(0));
 		for (int i = 0; i < 7; ++i, filter <<= 1) {
 			if (dField.selectable_field & filter)
 				DrawSelectionLine(matManager.vFieldMzone[0][i], !(dField.selected_field & filter), 2, outline_color);
@@ -111,6 +130,7 @@ void Game::DrawBackGround() {
 				DrawSelectionLine(matManager.getSzone()[0][i], !(dField.selected_field & filter), 2, outline_color);
 		}
 		filter = 0x10000;
+		driver->setTransform(irr::video::ETS_WORLD, brc::Board(1));
 		for (int i = 0; i < 7; ++i, filter <<= 1) {
 			if (dField.selectable_field & filter)
 				DrawSelectionLine(matManager.vFieldMzone[1][i], !(dField.selected_field & filter), 2, outline_color);
@@ -124,6 +144,7 @@ void Game::DrawBackGround() {
 	//disabled field
 	{
 		irr::video::SColor disabled_color = skin::DUELFIELD_DISABLED_FIELD_COLOR_VAL;
+		driver->setTransform(irr::video::ETS_WORLD, brc::Board(0));
 		uint32_t filter = 0x1;
 		for (int i = 0; i < 7; ++i, filter <<= 1) {
 			if (dField.disabled_field & filter) {
@@ -139,6 +160,7 @@ void Game::DrawBackGround() {
 			}
 		}
 		filter = 0x10000;
+		driver->setTransform(irr::video::ETS_WORLD, brc::Board(1));
 		for (int i = 0; i < 7; ++i, filter <<= 1) {
 			if (dField.disabled_field & filter) {
 				driver->draw3DLine(matManager.vFieldMzone[1][i][0].Pos, matManager.vFieldMzone[1][i][3].Pos, disabled_color);
@@ -177,6 +199,7 @@ void Game::DrawBackGround() {
 		selFieldDAlpha = -10;
 	}
 	setAlpha(matManager.mSelField, skin::DUELFIELD_HOVERED_VAL);
+	driver->setTransform(irr::video::ETS_WORLD, brc::Board(dField.hovered_controler & 1));
 	const irr::video::S3DVertex* vertex = nullptr;
 	if(dField.hovered_location == LOCATION_DECK)
 		vertex = matManager.getDeck()[dField.hovered_controler];
@@ -353,6 +376,7 @@ void Game::DrawCards() {
 		if(dField.skills[p])
 			DrawCard(dField.skills[p]);
 	}
+	brc::DrawOffstage(); // Battle Royal 2x2: the boards of the seats not on the field
 }
 void Game::DrawCard(ClientCard* pcard) {
 	if(pcard->aniFrame > 0) {
@@ -392,7 +416,7 @@ void Game::DrawCard(ClientCard* pcard) {
 	}
 	{
 		const float pop = mdfx::PopScale(pcard->popFrom, pcard->popT, pcard->popDur);
-		irr::core::matrix4 world = pcard->mTransform;
+		irr::core::matrix4 world = brc::CardMatrix(pcard) * pcard->mTransform;
 		if(pop != 1.0f) {
 			irr::core::matrix4 scale;
 			scale.setScale(pop);
@@ -456,7 +480,7 @@ void Game::DrawCard(ClientCard* pcard) {
 		irr::core::matrix4 atk;
 		atk.setTranslation(pcard->curPos + irr::core::vector3df(0, (pcard->controler == 0 ? -1 : 1) * (atkdy / 4.0f + 0.35f), 0.05f));
 		atk.setRotationRadians(irr::core::vector3df(0, 0, pcard->controler == 0 ? 0 : irr::core::PI));
-		driver->setTransform(irr::video::ETS_WORLD, atk);
+		driver->setTransform(irr::video::ETS_WORLD, brc::CardMatrix(pcard) * atk);
 		driver->drawVertexPrimitiveList(matManager.vSymbol, 4, matManager.iRectangle, 2);
 	}
 }
@@ -500,14 +524,16 @@ void Game::DrawMisc() {
 	matManager.mTexture.setTexture(0, imageManager.tAct);
 	driver->setMaterial(matManager.mTexture);
 
-	auto drawact = [this, &im](const Materials::QuadVertex vertex, float zval) {
+	int actp = 0;
+	auto drawact = [this, &im, &actp](const Materials::QuadVertex vertex, float zval) {
 		im.setTranslation(irr::core::vector3df((vertex[0].Pos.X + vertex[1].Pos.X) / 2,
 			(vertex[0].Pos.Y + vertex[2].Pos.Y) / 2, zval));
-		driver->setTransform(irr::video::ETS_WORLD, im);
+		driver->setTransform(irr::video::ETS_WORLD, brc::Board(actp) * im);
 		driver->drawVertexPrimitiveList(matManager.vActivate, 4, matManager.iRectangle, 2);
 	};
 
 	for(int p = 0; p < 2; p++) {
+		actp = p;
 		if(dField.deck_act[p])
 			drawact(matManager.getDeck()[p], dField.deck[p].size() * 0.01f + 0.02f);
 		if(dField.grave_act[p])
@@ -523,7 +549,7 @@ void Game::DrawMisc() {
 	if(dField.conti_act) {
 		im.setTranslation(irr::core::vector3df((matManager.vFieldContiAct[three_columns][0].X + matManager.vFieldContiAct[three_columns][1].X) / 2,
 			(matManager.vFieldContiAct[three_columns][0].Y + matManager.vFieldContiAct[three_columns][2].Y) / 2, 0.03f));
-		driver->setTransform(irr::video::ETS_WORLD, im);
+		driver->setTransform(irr::video::ETS_WORLD, brc::Board(0) * im);
 		driver->drawVertexPrimitiveList(matManager.vActivate, 4, matManager.iRectangle, 2);
 	}
 
@@ -544,14 +570,14 @@ void Game::DrawMisc() {
 		SetZRotation(ic);
 		ic.setTranslation(chain.chain_pos);
 		driver->setMaterial(matManager.mTRTexture);
-		driver->setTransform(irr::video::ETS_WORLD, ic);
+		driver->setTransform(irr::video::ETS_WORLD, brc::Board(chain.controler & 1) * ic);
 		driver->drawVertexPrimitiveList(matManager.vSymbol, 4, matManager.iRectangle, 2);
 		it.setScale(0.6f);
 		it.setTranslation(chain.chain_pos);
 		matManager.mTRTexture.setTexture(0, imageManager.tNumber);
 		setCoords(i);
 		driver->setMaterial(matManager.mTRTexture);
-		driver->setTransform(irr::video::ETS_WORLD, it);
+		driver->setTransform(irr::video::ETS_WORLD, brc::Board(chain.controler & 1) * it);
 		driver->drawVertexPrimitiveList(matManager.vChainNum, 4, matManager.iRectangle, 2);
 	}
 	//lp bar
@@ -673,38 +699,43 @@ void Game::DrawMisc() {
 #undef LPCOLOR
 #undef SKCOLOR
 
+	for (int p = 0; p < 2; ++p)
+		DrawPlayerLabels(p);
+}
+/*
+Battle Royal 2x2 also calls this for the offstage boards (swapped into the field lists for the draw)
+*/
+void Game::DrawPlayerLabels(int p) {
 	ClientCard* pcard;
 	const size_t pzones[]{ dInfo.GetPzoneIndex(0), dInfo.GetPzoneIndex(1) };
-	for (size_t p = 0; p < 2; ++p) {
-		for (size_t i = 0; i < 7; ++i) {
-			pcard = dField.mzone[p][i];
-			if (pcard && pcard->code != 0 && (p == 0 || (pcard->position & POS_FACEUP)))
-				DrawStatus(pcard);
-		}
-		// Draw pendulum scales
-		for (const auto pzone : pzones) {
-			pcard = dField.szone[p][pzone];
-			if (pcard && (pcard->type & TYPE_PENDULUM) && !pcard->equipTarget)
-				DrawPendScale(pcard);
-		}
-		if (dField.extra[p].size()) {
-			const auto str = (dField.extra_p_count[p]) ? epro::format(L"{}({})", dField.extra[p].size(), dField.extra_p_count[p]) : epro::format(L"{}", dField.extra[p].size());
-			DrawStackIndicator(str, matManager.getExtra()[p], (p == 1));
-		}
-		if (dField.deck[p].size())
-			DrawStackIndicator(gDataManager->GetNumString(dField.deck[p].size()), matManager.getDeck()[p], (p == 1));
-		if (dField.grave[p].size())
-			DrawStackIndicator(gDataManager->GetNumString(dField.grave[p].size()), matManager.getGrave()[p], (p == 1));
-		if (dField.remove[p].size())
-			DrawStackIndicator(gDataManager->GetNumString(dField.remove[p].size()), matManager.getRemove()[p], (p == 1));
+	for (size_t i = 0; i < 7; ++i) {
+		pcard = dField.mzone[p][i];
+		if (pcard && pcard->code != 0 && (p == 0 || (pcard->position & POS_FACEUP)))
+			DrawStatus(pcard);
 	}
+	// Draw pendulum scales
+	for (const auto pzone : pzones) {
+		pcard = dField.szone[p][pzone];
+		if (pcard && (pcard->type & TYPE_PENDULUM) && !pcard->equipTarget)
+			DrawPendScale(pcard);
+	}
+	if (dField.extra[p].size()) {
+		const auto str = (dField.extra_p_count[p]) ? epro::format(L"{}({})", dField.extra[p].size(), dField.extra_p_count[p]) : epro::format(L"{}", dField.extra[p].size());
+		DrawStackIndicator(str, matManager.getExtra()[p], (p == 1));
+	}
+	if (dField.deck[p].size())
+		DrawStackIndicator(gDataManager->GetNumString(dField.deck[p].size()), matManager.getDeck()[p], (p == 1));
+	if (dField.grave[p].size())
+		DrawStackIndicator(gDataManager->GetNumString(dField.grave[p].size()), matManager.getGrave()[p], (p == 1));
+	if (dField.remove[p].size())
+		DrawStackIndicator(gDataManager->GetNumString(dField.remove[p].size()), matManager.getRemove()[p], (p == 1));
 }
 /*
 Draws the stats of a card based on its relative position
 */
 void Game::DrawStatus(ClientCard* pcard) {
-	auto getcoords = [collisionmanager=device->getSceneManager()->getSceneCollisionManager()](const irr::core::vector3df& pos3d) {
-		return collisionmanager->getScreenCoordinatesFrom3DPosition(pos3d);
+	auto getcoords = [collisionmanager=device->getSceneManager()->getSceneCollisionManager(), pcard](const irr::core::vector3df& pos3d) {
+		return collisionmanager->getScreenCoordinatesFrom3DPosition(brc::CardPoint(pcard, pos3d));
 	};
 	int x1, y1, x2, y2;
 	if (pcard->controler == 0) {
@@ -807,7 +838,7 @@ void Game::DrawPendScale(ClientCard* pcard) {
 		y0 = pcard->curPos.Y - 0.56f;
 	} else
 		y0 = pcard->curPos.Y + 0.29f;
-	auto coords = device->getSceneManager()->getSceneCollisionManager()->getScreenCoordinatesFrom3DPosition({ x0, y0, pcard->curPos.Z });
+	auto coords = device->getSceneManager()->getSceneCollisionManager()->getScreenCoordinatesFrom3DPosition(brc::CardPoint(pcard, { x0, y0, pcard->curPos.Z }));
 	DrawShadowText(adFont, scale, irr::core::recti(coords.X - (12 * swap), coords.Y, coords.X + (12 * (1 - swap)), coords.Y - 800),
 				   Resize(1, 1, 1, 1), skin::DUELFIELD_CARD_PSCALE_VAL, 0xff000000, true);
 }
@@ -820,7 +851,7 @@ void Game::DrawStackIndicator(epro::wstringview text, const Materials::QuadVerte
 	//int width = dim.Width / 2, height = dim.Height / 2;
 	float x0 = (v[0].Pos.X + v[1].Pos.X) / 2.0f;
 	float y0 = (opponent) ? v[0].Pos.Y : v[2].Pos.Y;
-	auto coords = device->getSceneManager()->getSceneCollisionManager()->getScreenCoordinatesFrom3DPosition({ x0, y0, 0 });
+	auto coords = device->getSceneManager()->getSceneCollisionManager()->getScreenCoordinatesFrom3DPosition(brc::Point(opponent ? 1 : 0, { x0, y0, 0 }));
 	{
 		const auto nd = numFont->getDimensionustring(utext);
 		const int padx = ResizeX(5), pady = ResizeY(1);

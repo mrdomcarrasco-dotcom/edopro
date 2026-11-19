@@ -18,6 +18,7 @@
 #include "core_utils.h"
 #include "common.h"
 #include "mdfx.h"
+#include "materials.h"
 #include "fmt.h"
 #include "windbot.h"
 #include "windbot_panel.h"
@@ -384,6 +385,294 @@ bool InTable(const irr::core::vector2di& m) {
 }
 }
 
+// ------------------------------------------------------------------------------------- 2x2 field
+namespace {
+struct WideState {
+	bool on = false;
+	float scale = 0.56f, gap = 0.18f, dy = 0.45f;
+	irr::core::matrix4 board[2], column[2];
+	bool handPlain[2]{};
+	uint8_t quad_seat[4]{ NONE, NONE, NONE, NONE }; // near-left, near-right, far-left, far-right
+} wide;
+const irr::core::matrix4 kIdentity;
+const irr::core::vector3df kCentre(3.95f, 0.f, 0.f); // player 1's board is player 0's turned 180 degrees about it
+
+// one offstage seat's frozen board as cards of our own, laid out as engine player k (0 near row, 1 far row)
+struct Off {
+	uint32_t version = ~0u;
+	int k = -1;
+	std::vector<ClientCard*> mzone, szone, hand, grave, remove, extra, deck;
+	std::vector<ClientCard*> overlays;
+	int extra_p = 0;
+	bool placed = false;
+};
+Off off[4];
+uint32_t off_shown = 0; // card info shown from an offstage board
+
+irr::core::matrix4 ColumnMatrix(int col) {
+	irr::core::matrix4 toCentre, sc, out;
+	toCentre.setTranslation(-kCentre);
+	sc.setScale(wide.scale);
+	const float half = 9.6f * wide.scale / 2.f + wide.gap / 2.f;
+	out.setTranslation(kCentre + irr::core::vector3df(col == 0 ? -half : half, wide.dy, 0.f));
+	return out * sc * toCentre;
+}
+irr::core::matrix4 FlipMatrix() {
+	irr::core::matrix4 toCentre, rot, back;
+	toCentre.setTranslation(-kCentre);
+	rot.setRotationRadians(irr::core::vector3df(0.f, 0.f, irr::core::PI));
+	back.setTranslation(kCentre);
+	return back * rot * toCentre;
+}
+
+void UpdateWide() {
+	auto& br = BR();
+	wide.on = br.active && br.count >= 3 && mainGame->dInfo.isInDuel && !gGameConfig->topdown_view;
+	if(!wide.on) {
+		wide.board[0] = wide.board[1] = wide.column[0] = wide.column[1] = kIdentity;
+		wide.handPlain[0] = wide.handPlain[1] = false;
+		return;
+	}
+	static bool tuned = false;
+	if(!tuned) {
+		tuned = true;
+		// BR_WIDE=scale,gap,lift for tuning
+		if(const char* e = std::getenv("BR_WIDE"); e && *e) {
+			float a = 0, b = 0, c = 0;
+			if(std::sscanf(e, "%f,%f,%f", &a, &b, &c) == 3 && a > 0.2f && a < 1.f) { wide.scale = a; wide.gap = b; wide.dy = c; }
+		}
+	}
+	// seats: your team on the near row (you on the left), everyone else across; 1v3 / 3v1 spill one seat over
+	const uint8_t me = MeSeat();
+	const uint8_t n = std::min<uint8_t>(br.count, 4);
+	std::vector<uint8_t> nearS{ me }, farS;
+	for(uint8_t s = 0; s < n; ++s) {
+		if(s == me) continue;
+		if(br.teams && br.seats[s].team == br.seats[me].team) nearS.push_back(s);
+		else if(!br.teams && n == 4 && s == (me + 1) % 4) nearS.push_back(s);
+		else farS.push_back(s);
+	}
+	while(farS.size() > 2) { nearS.push_back(farS.back()); farS.pop_back(); }
+	while(nearS.size() > 2) { farS.push_back(nearS.back()); nearS.pop_back(); }
+	for(auto& q : wide.quad_seat) q = NONE;
+	for(size_t i = 0; i < nearS.size(); ++i) wide.quad_seat[i] = nearS[i];
+	for(size_t i = 0; i < farS.size(); ++i) wide.quad_seat[2 + i] = farS[i];
+	wide.column[0] = ColumnMatrix(0);
+	wide.column[1] = ColumnMatrix(1);
+	for(int p = 0; p < 2; ++p) {
+		const uint8_t seat = br.slot_seat[mainGame->LocalPlayer(p) & 1] & 3;
+		int q = -1;
+		for(int i = 0; i < 4; ++i) if(wide.quad_seat[i] == seat) q = i;
+		if(q < 0) { wide.board[p] = kIdentity; wide.handPlain[p] = false; continue; }
+		const bool farRow = q >= 2;
+		const bool flip = (p == 0) ? farRow : !farRow; // player 0's half is drawn as a near board, player 1's as a far one
+		wide.board[p] = flip ? wide.column[q & 1] * FlipMatrix() : wide.column[q & 1];
+		wide.handPlain[p] = seat == br.my_seat && !flip;
+	}
+}
+
+void ClearOff(Off& o) {
+	o.mzone.assign(7, nullptr);
+	o.szone.assign(8, nullptr);
+	o.hand.clear(); o.grave.clear(); o.remove.clear(); o.extra.clear(); o.deck.clear(); o.overlays.clear();
+	o.extra_p = 0;
+	o.placed = false;
+}
+// MSG_SEAT_BOARD body -> cards (they stay in the pool until Reset: a card list window may still show them)
+void BuildOff(uint8_t seat, int k) {
+	auto& o = off[seat];
+	ClearOff(o);
+	o.k = k;
+	const auto& b = BR().seats[seat].board;
+	if(b.size() < 32)
+		return;
+	const uint8_t* p = b.data();
+	uint32_t deck, extra_p;
+	std::memcpy(&deck, p + 7, 4);
+	std::memcpy(&extra_p, p + 19, 4);
+	o.extra_p = static_cast<int>(extra_p);
+	size_t pos = 31;
+	const uint8_t blocks = p[pos++];
+	for(uint8_t bl = 0; bl < blocks; ++bl) {
+		if(pos + 5 > b.size()) return;
+		const uint8_t loc = p[pos];
+		uint32_t len;
+		std::memcpy(&len, p + pos + 1, 4);
+		pos += 5;
+		if(pos + len > b.size() || len < 4) return;
+		CoreUtils::QueryStream stream{ p + pos, false, len, mainGame->dInfo.legacy_race_size };
+		pos += len;
+		uint32_t seq = 0;
+		for(const auto& q : stream.GetQueries()) {
+			const uint32_t s = seq++;
+			if(q.IsEmpty())
+				continue;
+			auto* c = NewCard(loc, s);
+			c->controler = static_cast<uint8_t>(k);
+			for(size_t ov = 0; ov < q.OverlayCount(); ++ov) {
+				auto* m = NewCard(LOCATION_OVERLAY, static_cast<uint32_t>(ov));
+				m->controler = static_cast<uint8_t>(k);
+				m->overlayTarget = c;
+				m->position = POS_FACEUP;
+				c->overlayed.push_back(m);
+				o.overlays.push_back(m);
+			}
+			switch(loc) {
+			case LOCATION_MZONE: if(s < 7) o.mzone[s] = c; break;
+			case LOCATION_SZONE: if(s < 8) o.szone[s] = c; break;
+			case LOCATION_HAND: c->sequence = static_cast<uint32_t>(o.hand.size()); o.hand.push_back(c); break;
+			case LOCATION_GRAVE: c->sequence = static_cast<uint32_t>(o.grave.size()); o.grave.push_back(c); break;
+			case LOCATION_REMOVED: c->sequence = static_cast<uint32_t>(o.remove.size()); o.remove.push_back(c); break;
+			case LOCATION_EXTRA: c->sequence = static_cast<uint32_t>(o.extra.size()); o.extra.push_back(c); break;
+			default: break;
+			}
+			c->UpdateInfo(q);
+			c->controler = static_cast<uint8_t>(k);
+		}
+	}
+	// a teammate's (or opponent's) hand never shows its faces; yours does
+	if(seat != BR().my_seat)
+		for(auto* c : o.hand) { c->code = 0; c->position = POS_FACEDOWN; }
+	for(uint32_t i = 0; i < deck; ++i) {
+		auto* c = NewCard(LOCATION_DECK, i);
+		c->controler = static_cast<uint8_t>(k);
+		o.deck.push_back(c);
+	}
+}
+void SwapOff(Off& o) {
+	auto& d = mainGame->dField;
+	const int k = o.k;
+	std::swap(d.mzone[k], o.mzone);
+	std::swap(d.szone[k], o.szone);
+	std::swap(d.hand[k], o.hand);
+	std::swap(d.grave[k], o.grave);
+	std::swap(d.remove[k], o.remove);
+	std::swap(d.extra[k], o.extra);
+	std::swap(d.deck[k], o.deck);
+	std::swap(d.extra_p_count[k], o.extra_p);
+}
+bool InQuad(const Materials::QuadVertex& v, float x, float y) {
+	const float x0 = std::min(v[0].Pos.X, v[1].Pos.X), x1 = std::max(v[0].Pos.X, v[1].Pos.X);
+	const float y0 = std::min(v[0].Pos.Y, v[2].Pos.Y), y1 = std::max(v[0].Pos.Y, v[2].Pos.Y);
+	return x >= x0 && x <= x1 && y >= y0 && y <= y1;
+}
+// the mouse over an offstage board: that card's info in the side panel
+void HoverOffstage(const irr::core::vector3df& pt) {
+	for(int q = 0; q < 4; ++q) {
+		const uint8_t seat = wide.quad_seat[q];
+		if(seat == NONE || !Offstage(seat))
+			continue;
+		auto& o = off[seat];
+		if(o.k < 0)
+			continue;
+		irr::core::matrix4 inv;
+		if(!wide.column[q & 1].getInverse(inv))
+			continue;
+		irr::core::vector3df l = pt;
+		inv.transformVect(l);
+		const int k = o.k;
+		if(l.X < -1.f || l.X > 9.f || (k == 0 ? (l.Y < 0.f || l.Y > 4.f) : (l.Y > 0.f || l.Y < -4.f)))
+			continue;
+		ClientCard* c = nullptr;
+		for(int i = 0; i < 7 && !c; ++i) if(InQuad(matManager.vFieldMzone[k][i], l.X, l.Y)) c = o.mzone[i];
+		for(int i = 0; i < 6 && !c; ++i) if(InQuad(matManager.getSzone()[k][i], l.X, l.Y)) c = o.szone[i];
+		if(!c && InQuad(matManager.getGrave()[k], l.X, l.Y) && !o.grave.empty()) c = o.grave.back();
+		if(!c && InQuad(matManager.getRemove()[k], l.X, l.Y) && !o.remove.empty()) c = o.remove.back();
+		if(c && c->code && ((c->position & POS_FACEUP) || seat == BR().my_seat) && c->code != off_shown) {
+			off_shown = c->code;
+			mainGame->ShowCardInfo(c->code);
+		}
+		return;
+	}
+}
+}
+
+bool Wide() { return wide.on; }
+const irr::core::matrix4& Board(int p) { return wide.board[p & 1]; }
+const irr::core::matrix4& Column(int c) { return wide.column[c & 1]; }
+const irr::core::matrix4& CardMatrix(const ClientCard* c) {
+	if(!wide.on || !c)
+		return kIdentity;
+	const int p = (c->overlayTarget ? c->overlayTarget->controler : c->controler) & 1;
+	if(c->location == LOCATION_HAND && wide.handPlain[p])
+		return kIdentity;
+	return wide.board[p];
+}
+irr::core::vector3df Point(int p, const irr::core::vector3df& v) {
+	irr::core::vector3df out = v;
+	if(wide.on)
+		wide.board[p & 1].transformVect(out);
+	return out;
+}
+irr::core::vector3df CardPoint(const ClientCard* c, const irr::core::vector3df& v) {
+	irr::core::vector3df out = v;
+	if(wide.on)
+		CardMatrix(c).transformVect(out);
+	return out;
+}
+bool MapMouse(irr::core::vector3df& pt) {
+	if(!wide.on)
+		return true;
+	for(int p = 0; p < 2; ++p) {
+		irr::core::matrix4 inv;
+		if(!wide.board[p].getInverse(inv))
+			continue;
+		irr::core::vector3df l = pt;
+		inv.transformVect(l);
+		const bool inHalf = p == 0 ? (l.Y >= -0.7f && l.Y <= 4.0f) : (l.Y <= 0.7f && l.Y >= -4.0f);
+		if(inHalf && l.X >= -1.0f && l.X <= 9.0f) {
+			pt = l;
+			return true;
+		}
+	}
+	HoverOffstage(pt);
+	return false;
+}
+void DrawOffstage() {
+	if(!wide.on)
+		return;
+	for(int q = 0; q < 4; ++q) {
+		const uint8_t seat = wide.quad_seat[q];
+		if(seat == NONE || !Offstage(seat) || BR().seats[seat].board.empty())
+			continue;
+		const int k = q >= 2 ? 1 : 0;
+		auto& o = off[seat];
+		if(o.version != board_version[seat] || o.k != k) {
+			BuildOff(seat, k);
+			o.version = board_version[seat];
+		}
+		const auto savedBoard = wide.board[k];
+		const bool savedHand = wide.handPlain[k];
+		wide.board[k] = wide.column[q & 1];
+		wide.handPlain[k] = seat == BR().my_seat;
+		auto& d = mainGame->dField;
+		SwapOff(o);
+		if(!o.placed) {
+			o.placed = true;
+			auto place = [&](ClientCard* c) {
+				if(!c) return;
+				irr::core::vector3df pos, rot;
+				d.GetCardDrawCoordinates(c, &pos, &rot, true);
+				c->curPos = pos;
+				c->curRot = rot;
+				c->mTransform.setTranslation(pos);
+				c->mTransform.setRotationRadians(rot);
+				c->curAlpha = 255;
+			};
+			for(auto* list : { &d.mzone[k], &d.szone[k], &d.hand[k], &d.grave[k], &d.remove[k], &d.extra[k], &d.deck[k] })
+				for(auto* c : *list) place(c);
+			for(auto* c : o.overlays) place(c);
+		}
+		for(auto* c : o.overlays) mainGame->DrawCard(c);
+		for(auto* list : { &d.mzone[k], &d.szone[k], &d.deck[k], &d.hand[k], &d.grave[k], &d.remove[k], &d.extra[k] })
+			for(auto* c : *list) if(c) mainGame->DrawCard(c);
+		mainGame->DrawPlayerLabels(k);
+		SwapOff(o);
+		wide.board[k] = savedBoard;
+		wide.handPlain[k] = savedHand;
+	}
+}
+
 // ------------------------------------------------------------------------------------- duel thread
 void OnBoard(const uint8_t* p, size_t len) {
 	auto& br = BR();
@@ -466,6 +755,10 @@ void Reset() {
 	pool.clear();
 	for(auto& f : frozen)
 		f = Frozen{};
+	for(auto& o : off)
+		o = Off{};
+	off_shown = 0;
+	wide.on = false;
 	for(auto& v : board_version)
 		v = 0;
 	name_cache.clear();
@@ -505,6 +798,7 @@ void DealIn(ClientCard* c) {
 }
 
 void BeginFrame() {
+	UpdateWide();
 	if(!BR().active || !mainGame->dInfo.isInDuel)
 		return;
 	if(animate_top) {
@@ -631,8 +925,8 @@ bool OnMouse(const irr::SEvent& event) {
 	if(!BR().active || !mainGame->dInfo.isInDuel)
 		return false;
 	if(event.EventType == irr::EET_KEY_INPUT_EVENT) {
-		if(!event.KeyInput.PressedDown)
-			return false;
+		if(!event.KeyInput.PressedDown || !table_open)
+			return false; // the table overlay is retired: Tab no longer opens it (Esc/Tab still close a stray one)
 		const auto key = event.KeyInput.Key;
 		if(key != irr::KEY_TAB && !(key == irr::KEY_ESCAPE && table_open))
 			return false;
@@ -682,8 +976,6 @@ bool OnMouse(const irr::SEvent& event) {
 			const uint8_t s = chip_seat[chip];
 			if(CanTarget(s))
 				RequestTarget(s);
-			else
-				OpenTable(s);
 			return true;
 		}
 		if(!inTable)
@@ -829,7 +1121,7 @@ void AutoTest() {
 			if(now < myAt)
 				break;
 			switch(myStage) {
-			case 0: OpenTable(-1); myStage = 1; myAt = now + 4000; break;
+			case 0: myStage = 1; myAt = now + 3000; break;
 			case 1: {
 				uint8_t pick = NONE;
 				for(uint8_t s = 0; s < br.count && s < 4; ++s)
@@ -839,7 +1131,7 @@ void AutoTest() {
 				if(pick != NONE) RequestTarget(pick);
 				break;
 			}
-			case 2: CloseTable(); myStage = 3; myAt = now + 3000; break;
+			case 2: myStage = 3; myAt = now + 3000; break;
 			case 3:
 				myStage = 4;
 				DuelClient::SetResponseI(7); // end phase
