@@ -1578,16 +1578,17 @@ void DrawExodia() {
 		const float level = smooth(2750.f, 3200.f, t);
 		const float full = window(t, 3000.f, 3900.f, 150.f, 400.f);
 		const s32 top = (s32)(H * (1.f - level));
-		const video::SColor f0 = col(0.f, { 255, 255, 120, 20 }), f1 = col(fire * 0.62f, { 255, 236, 92, 18 });
+		const video::SColor f0 = col(0.f, { 255, 255, 120, 20 }), f1 = col(fire * 0.5f, { 255, 210, 78, 14 });
 		drv->draw2DRectangle(core::rect<s32>(0, top, (s32)W, (s32)H), f0, f0, f1, f1);
-		FillRect(0, 0, (s32)W, (s32)H, col(full * 0.5f, { 255, 220, 110, 30 }));
+		FillRect(0, 0, (s32)W, (s32)H, col(full * 0.34f, { 255, 200, 92, 24 }));
 		while(ov.acc > 12.f) {
 			ov.acc -= 12.f;
-			for(int k = 0; k < 4; ++k) {
-				const bool ash = frand(0.f, 1.f) < 0.12f;
+			// additive flames stack fast: two per tick at ~half intensity keeps the fire orange instead of a white-gold sheet
+			for(int k = 0; k < 2; ++k) {
+				const bool ash = frand(0.f, 1.f) < 0.16f;
 				sparks.push_back({ core::vector2df(frand(0.f, W), H + 30.f * s), core::vector2df(frand(-30.f, 30.f), -frand(260.f, 620.f)) * s, 0.f, frand(900.f, 1700.f),
 								   (ash ? frand(5.f, 9.f) : frand(60.f, 150.f)) * s, -60.f * s, 0.f, 0.f,
-								   ash ? video::SColor(255, 20, 10, 10) : video::SColor(255, 255, (u32)frand(90.f, 180.f), 30), (uint8_t)(ash ? 2 : 0) });
+								   ash ? video::SColor(255, 20, 10, 10) : video::SColor(255, 150, (u32)frand(46.f, 96.f), 14), (uint8_t)(ash ? 2 : 0) });
 			}
 		}
 	} else {
@@ -1636,7 +1637,7 @@ void DrawExodia() {
 	}
 	const float white = smooth(9300.f, 9600.f, t) * (1.f - smooth(9950.f, 10400.f, t));
 	// MD whites out here; ours is a warm haze that stops well short of white
-	if(white > 0.f) FillRect(0, 0, (s32)W, (s32)H, col(white * 0.55f, { 255, 236, 222, 196 }));
+	if(white > 0.f) FillRect(0, 0, (s32)W, (s32)H, col(white * 0.38f, { 255, 214, 190, 150 }));
 }
 
 // ---------------------------------------------------------------- phase / turn bands (~0.9 s)
