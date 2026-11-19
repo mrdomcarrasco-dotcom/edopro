@@ -1143,6 +1143,23 @@ void AutoTest() {
 							if(!hit) misses += " p" + std::to_string(p) + "/" + std::to_string(c->location) + "/" + std::to_string(c->sequence) + "->" + std::to_string(d.hovered_controler) + "/" + std::to_string(d.hovered_location) + "/" + std::to_string(d.hovered_sequence);
 							d.hovered_location = keep_loc; d.hovered_controler = keep_ctl; d.hovered_sequence = keep_seq;
 						}
+				// every monster / spell zone of both live boards, empty or not (placing a card clicks empty zones)
+				for(int p = 0; p < 2; ++p) {
+					for(int i = 0; i < 5; ++i) {
+						for(int kind = 0; kind < 2; ++kind) {
+							const auto& v = kind == 0 ? matManager.vFieldMzone[p][i] : matManager.getSzone()[p][i];
+							const irr::core::vector3df centre((v[0].Pos.X + v[1].Pos.X) / 2.f, (v[0].Pos.Y + v[2].Pos.Y) / 2.f, 0.f);
+							const auto sc = coll->getScreenCoordinatesFrom3DPosition(Point(p, centre));
+							const auto keep_loc = d.hovered_location; const auto keep_ctl = d.hovered_controler; const auto keep_seq = d.hovered_sequence;
+							d.GetHoverField(sc);
+							const uint32_t want = kind == 0 ? LOCATION_MZONE : LOCATION_SZONE;
+							const bool hit = d.hovered_location == want && d.hovered_controler == p && d.hovered_sequence == static_cast<uint32_t>(i);
+							(hit ? ok : bad)++;
+							if(!hit) misses += " zone p" + std::to_string(p) + "/" + std::to_string(want) + "/" + std::to_string(i) + "->" + std::to_string(d.hovered_controler) + "/" + std::to_string(d.hovered_location) + "/" + std::to_string(d.hovered_sequence);
+							d.hovered_location = keep_loc; d.hovered_controler = keep_ctl; d.hovered_sequence = keep_seq;
+						}
+					}
+				}
 				for(auto* c : d.hand[0]) {
 					const auto r = c->hand_collision;
 					const irr::core::vector2di mid((r.UpperLeftCorner.X + r.LowerRightCorner.X) / 2, (r.UpperLeftCorner.Y + r.LowerRightCorner.Y) / 2);
