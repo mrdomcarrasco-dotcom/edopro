@@ -794,6 +794,18 @@ void AutoTest() {
 		if(now > at && mainGame->btnHostPrepStart->isEnabled()) { click(mainGame->btnHostPrepStart); at = now + 4000; }
 		break;
 	case 4: {
+		// rock-paper-scissors and the go-first choice (the bots should start): answered like a click
+		static uint32_t rpsAt = 0;
+		auto fieldClick = [](irr::gui::IGUIElement* el) {
+			irr::SEvent ev{};
+			ev.EventType = irr::EET_GUI_EVENT;
+			ev.GUIEvent.Caller = el;
+			ev.GUIEvent.Element = nullptr;
+			ev.GUIEvent.EventType = irr::gui::EGET_BUTTON_CLICKED;
+			mainGame->dField.OnEvent(ev);
+		};
+		if(now > rpsAt && mainGame->wHand && mainGame->wHand->isVisible()) { fieldClick(mainGame->btnHand[1]); rpsAt = now + 2000; }
+		if(now > rpsAt && mainGame->wFTSelect && mainGame->wFTSelect->isVisible()) { fieldClick(mainGame->btnSecond); rpsAt = now + 2000; }
 		if(!BR().active)
 			break;
 		if(mainGame->btnChainIgnore && !mainGame->btnChainIgnore->isPressed())
