@@ -981,6 +981,7 @@ void Game::DrawGUI() {
 	// Battle Royal table: above the field, under the GUI windows (card lists, prompts); the field's own
 	// buttons and the chat are hidden for this draw only
 	brc::DrawTable();
+	brc::DrawAttackPick();
 	brc::CoverGui(true);
 	env->drawAll();
 	brc::CoverGui(false);

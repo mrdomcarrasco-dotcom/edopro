@@ -1811,6 +1811,9 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 			mainGame->dField.attackable_cards.push_back(pcard);
 			pcard->cmdFlag |= COMMAND_ATTACK;
 		}
+		// Battle Royal attack pick on another seat: the target switched, declare the same attack again
+		if(mainGame->dInfo.br.active && brc::OnBattleCmd())
+			return false;
 		std::lock_guard<epro::mutex> lock(mainGame->gMutex);
 		if(BufferIO::Read<uint8_t>(pbuf)) {
 			mainGame->btnM2->setVisible(true);
@@ -2012,6 +2015,8 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 	case MSG_SELECT_YESNO: {
 		/*uint8_t selecting_player = */BufferIO::Read<uint8_t>(pbuf);
 		uint64_t desc = CompatRead<uint32_t, uint64_t>(pbuf);
+		if(mainGame->dInfo.br.active && brc::OnYesNo(desc))
+			return false;
 		std::lock_guard<epro::mutex> lock(mainGame->gMutex);
 		mainGame->dField.highlighting_card = 0;
 		mainGame->stQMessage->setText(gDataManager->GetDesc(desc, mainGame->dInfo.compat_mode).data());
@@ -2065,6 +2070,11 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 				panelmode = true;
 		}
 		std::sort(mainGame->dField.selectable_cards.begin(), mainGame->dField.selectable_cards.end(), ClientCard::client_card_sort);
+		// Battle Royal attack pick: the attack target was already chosen on the board
+		if(!panelmode && mainGame->dInfo.br.active && brc::OnSelectCard()) {
+			select_hint = 0;
+			return false;
+		}
 		PerformQueuedPanelConfirmIfDifferent(mainGame->dField.selectable_cards);
 		std::wstring text = epro::format(L"{}({}-{})", gDataManager->GetDesc(select_hint ? select_hint : 560, mainGame->dInfo.compat_mode),
 			mainGame->dField.select_min, mainGame->dField.select_max);
@@ -3919,6 +3929,13 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		CoreUtils::loc_info info2 = CoreUtils::ReadLocInfo(pbuf, mainGame->dInfo.compat_mode);
 		const bool is_direct = info2.location == 0;
 		info2.controler = mainGame->LocalPlayer(info2.controler);
+		if(const char* trace = std::getenv("BR_AUTOTEST"); trace && *trace && mainGame->dInfo.br.active) {
+			if(FILE* f = std::fopen("br-client.log", "a")) {
+				std::fprintf(f, "ATTACK turn %d seat %d -> seat %d %s %d\n", mainGame->dInfo.turn, mainGame->dInfo.br.active_seat,
+					mainGame->dInfo.br.target_seat, is_direct ? "direct" : "monster", static_cast<int>(info2.sequence));
+				std::fclose(f);
+			}
+		}
 		std::unique_lock<epro::mutex> lock(mainGame->gMutex);
 		float sy;
 		// Battle Royal 2x2: both ends on their own boards

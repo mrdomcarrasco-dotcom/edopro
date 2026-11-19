@@ -1675,8 +1675,8 @@ bool DrawSeatHud(const SeatHud& in, SeatHudRects& out) {
 				tabX = (float)Tag(tagF, L"TURN", tabX, tabY, tabH, kTurnC, true, 0.75f + 0.25f * pulse).LowerRightCorner.X + 4.f * sx;
 			if(c.target)
 				tabX = (float)Tag(tagF, L"TARGET", tabX, tabY, tabH, kTargetC, true, 0.9f).LowerRightCorner.X + 4.f * sx;
-			if(c.canTarget && (c.hovered || in.targetHint)) {
-				const auto r = Tag(tagF, L"ATTACK", tabX, tabY, tabH, kTargetC, c.targetHover || c.hovered, c.hovered ? 1.f : 0.6f + 0.4f * pulse);
+			if(c.canTarget) { // always shown on your turn: the plate (or the board) switches the target; pulses at turn start
+				const auto r = Tag(tagF, L"ATTACK", tabX, tabY, tabH, kTargetC, c.targetHover || c.hovered, c.hovered ? 1.f : in.targetHint ? 0.6f + 0.4f * pulse : 0.55f);
 				out.target[i] = rect; // the whole plate switches the target
 				(void)r;
 			}

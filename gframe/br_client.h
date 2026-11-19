@@ -46,6 +46,14 @@ void CoverGui(bool on);           // hide the field buttons / chat under the tab
 ClientCard* ViewCard(uint32_t location, uint32_t sequence); // a card of the viewed board under the mouse
 bool ShowViewPile(uint32_t location); // card list of the viewed board's GY / banished / Extra Deck
 void RequestTarget(uint8_t seat); // our turn: switch the target to this seat
+// attack any opponent: Attack with 2+ opponents alive opens a pick over every opponent's board (main thread)
+bool BeginAttackPick(ClientCard* attacker); // true: the pick is open, don't send the attack yet
+bool Picking();
+void DrawAttackPick();            // gMutex held: DIRECT ATTACK marks on empty opposing boards
+// ...and the prompts that follow it are answered from the pick (duel thread); true = answered
+bool OnBattleCmd();               // after the target switch: declare the same attack again
+bool OnYesNo(uint64_t desc);      // "direct attack?" (desc 31)
+bool OnSelectCard();              // the attack target
 void AutoTest();                  // BR_AUTOTEST=<bot>,<bot>,...: host, spectate, add the bots, start
 
 }

@@ -540,6 +540,9 @@ bool ClientField::OnEvent(const irr::SEvent& event) {
 				mainGame->wCmdMenu->setVisible(false);
 				if(!clicked_card)
 					break;
+				// Battle Royal: pick the target among every opponent's board first
+				if(brc::BeginAttackPick(clicked_card))
+					break;
 				for(size_t i = 0; i < attackable_cards.size(); ++i) {
 					if(attackable_cards[i] == clicked_card) {
 						DuelClient::SetResponseI((static_cast<uint32_t>(i) << 16) + 1);
