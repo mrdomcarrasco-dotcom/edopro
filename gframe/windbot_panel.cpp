@@ -43,11 +43,8 @@ void WindBotPanel::Refresh(int filterMasterRule, int lastIndex) {
 	if(genericEngine) {
 		genericEngineIdx = cbBotEngine->addItem(genericEngine->name.data(), i);
 	}
-	for(auto& file : Utils::FindFiles(EPRO_TEXT("./deck/"), { EPRO_TEXT("ydk") })) {
-		file.erase(file.size() - 4);
-		cbBotDeck->addItem(Utils::ToUnicodeIfNeeded(file).data(), i);
-		i++;
-	}
+	// Progression: the AI deck list shows only the bots (Dominic 2026-11-20: his own decks kept showing up here).
+	// The Progression rival and the Saga bot load their decks from WindBot/Decks, so nothing needs this list.
 	UpdateDescription();
 }
 
