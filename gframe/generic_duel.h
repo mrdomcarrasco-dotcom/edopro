@@ -143,6 +143,8 @@ protected:
 	int BrSeatOf(DuelPlayer* dp) const;
 	bool BrMuted(DuelPlayer* dp) const; // offstage bot: no duel messages
 	uint8_t BrLoserSlot(DuelPlayer* dp) const;
+	std::vector<uint8_t> bot_prompt; // the AI's open MSG_SELECT_PLACE / DISFIELD (message id, then its body)
+	std::vector<int32_t> bot_chain;  // the AI's open MSG_SELECT_CHAIN: its entries' real indices (entries left out)
 	bool TeamOneFirst() const; // team Battle Royal: no choice of who goes first // slot reported as losing when dp leaves/surrenders
 	void BrSendSeatInfo();
 	void BrTurnStart(const CoreUtils::Packet& packet);

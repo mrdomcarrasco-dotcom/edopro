@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include "generic_duel.h"
 #include "br_board.h"
@@ -74,6 +75,14 @@ bool GenericDuel::BrMuted(DuelPlayer* dp) const {
 		return false;
 	const int seat = BrSeatOf(dp);
 	return seat >= 0 && !br.Receives(static_cast<uint8_t>(seat));
+}
+
+// "[AI] ..." = a WindBot. Two things it gets wrong are fixed for it here (found by yugioh-progression tools/arena):
+// it answers one zone when an effect asks for several (Sun God of Darkness - Ra: MSG_RETRY ended the duel), and it
+// crashes on a chain entry without a card (an effect registered to a player, some anime scripts).
+static bool IsAi(const DuelPlayer* dp) {
+	static constexpr uint16_t tag[]{ '[', 'A', 'I', ']', ' ' };
+	return dp && std::equal(std::begin(tag), std::end(tag), dp->name);
 }
 
 bool GenericDuel::TeamOneFirst() const {
@@ -532,9 +541,7 @@ void GenericDuel::PlayerReady(DuelPlayer* dp, bool is_ready) {
 		DeckError deck_error = DeckManager::CheckDeckSize(dueler.pdeck, host_info.sizes);
 		// era lists ("ANIME - ..."): the AI plays its character's anime deck, legal or not; people keep to the list
 		const auto* room_list = gdeckManager->GetLFList(host_info.lflist);
-		static constexpr uint16_t ai_tag[]{ '[', 'A', 'I', ']', ' ' };
-		const bool ai_free = room_list && room_list->listName.rfind(L"ANIME - ", 0) == 0
-			&& std::equal(std::begin(ai_tag), std::end(ai_tag), dp->name);
+		const bool ai_free = room_list && room_list->listName.rfind(L"ANIME - ", 0) == 0 && IsAi(dp);
 		if(deck_error.type == DeckError::NONE && !host_info.no_check_deck_content && !ai_free) {
 			if(dueler.deck_error) {
 				deck_error.type = DeckError::UNKNOWNCARD;
@@ -1136,6 +1143,52 @@ void GenericDuel::Sending(CoreUtils::Packet& packet, int& return_value, bool& re
 	case MSG_ANNOUNCE_CARD:
 	case MSG_ANNOUNCE_NUMBER: {
 		player = BufferIO::Read<uint8_t>(pbuf);
+		bot_prompt.clear();
+		bot_chain.clear();
+		if(IsAi(cur_player[player & 1])) {
+			const auto* body = packet.data();
+			const size_t size = packet.buff_size();
+			if((message == MSG_SELECT_PLACE || message == MSG_SELECT_DISFIELD) && size >= 6 && body[1] > 1) {
+				bot_prompt.push_back(message);
+				bot_prompt.insert(bot_prompt.end(), body, body + size);
+			} else if(message == MSG_SELECT_CHAIN && size >= 15) {
+				static constexpr size_t head = 15, entry = 23;
+				uint32_t n;
+				std::memcpy(&n, body + 11, sizeof(n));
+				if(size >= head + n * entry) {
+					std::vector<int32_t> keep;
+					int32_t ghost = -1;
+					for(uint32_t i = 0; i < n; ++i) {
+						if(body[head + i * entry + 5] != 0) keep.push_back(static_cast<int32_t>(i));
+						else if(ghost < 0) ghost = static_cast<int32_t>(i);
+					}
+					if(ghost >= 0) {
+						if(body[2] || keep.empty()) {
+							// forced (or nothing else to choose): answered for it
+							const int32_t answer = body[2] ? ghost : -1;
+							last_replay.Write<uint8_t>(sizeof(answer), false);
+							last_replay.WriteData(&answer, sizeof(answer));
+							OCG_DuelSetResponse(pduel, &answer, sizeof(answer));
+							record = false;
+							break;
+						}
+						std::vector<uint8_t> shown{ message };
+						shown.insert(shown.end(), body, body + 11);
+						const auto left = static_cast<uint32_t>(keep.size());
+						const auto* pl = reinterpret_cast<const uint8_t*>(&left);
+						shown.insert(shown.end(), pl, pl + sizeof(left));
+						for(const auto i : keep)
+							shown.insert(shown.end(), body + head + i * entry, body + head + (i + 1) * entry);
+						bot_chain = std::move(keep);
+						WaitforResponse(player);
+						NetServer::SendBufferToPlayer(cur_player[player], STOC_GAME_MSG, shown);
+						record = false;
+						return_value = 1;
+						break;
+					}
+				}
+			}
+		}
 		WaitforResponse(player);
 		SEND(cur_player[player]);
 		record = false;
@@ -1553,6 +1606,36 @@ void GenericDuel::GetResponse(DuelPlayer* dp, void* pdata, uint32_t len) {
 	}
 	if(!awaited)
 		return;
+	std::vector<uint8_t> fixed;
+	if(!bot_prompt.empty() && len == 3) {
+		const uint8_t pl = bot_prompt[1], want = bot_prompt[2];
+		uint32_t taken;
+		std::memcpy(&taken, &bot_prompt[3], sizeof(taken));
+		const auto* first = static_cast<const uint8_t*>(pdata);
+		fixed.assign(first, first + 3);
+		for(int bit = 0; bit < 32 && fixed.size() < want * 3u; ++bit) {
+			if(taken & (1u << bit))
+				continue;
+			const uint8_t zone[]{ static_cast<uint8_t>(bit < 16 ? pl : 1 - pl), static_cast<uint8_t>(bit % 16 < 8 ? LOCATION_MZONE : LOCATION_SZONE), static_cast<uint8_t>(bit % 8) };
+			if(std::equal(std::begin(zone), std::end(zone), first))
+				continue;
+			fixed.insert(fixed.end(), std::begin(zone), std::end(zone));
+		}
+		pdata = fixed.data();
+		len = static_cast<uint32_t>(fixed.size());
+	} else if(!bot_chain.empty() && len >= sizeof(int32_t)) {
+		int32_t i;
+		std::memcpy(&i, pdata, sizeof(i));
+		if(i >= 0 && i < static_cast<int32_t>(bot_chain.size())) {
+			const int32_t real = bot_chain[i];
+			fixed.resize(sizeof(real));
+			std::memcpy(fixed.data(), &real, sizeof(real));
+			pdata = fixed.data();
+			len = sizeof(real);
+		}
+	}
+	bot_prompt.clear();
+	bot_chain.clear();
 	last_replay.Write<uint8_t>(len, false);
 	last_replay.WriteData(pdata, len);
 	OCG_DuelSetResponse(pduel, pdata, len);
