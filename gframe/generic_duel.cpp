@@ -526,7 +526,12 @@ void GenericDuel::PlayerReady(DuelPlayer* dp, bool is_ready) {
 		return;
 	if(is_ready) {
 		DeckError deck_error = DeckManager::CheckDeckSize(dueler.pdeck, host_info.sizes);
-		if(deck_error.type == DeckError::NONE && !host_info.no_check_deck_content) {
+		// era lists ("ANIME - ..."): the AI plays its character's anime deck, legal or not; people keep to the list
+		const auto* room_list = gdeckManager->GetLFList(host_info.lflist);
+		static constexpr uint16_t ai_tag[]{ '[', 'A', 'I', ']', ' ' };
+		const bool ai_free = room_list && room_list->listName.rfind(L"ANIME - ", 0) == 0
+			&& std::equal(std::begin(ai_tag), std::end(ai_tag), dp->name);
+		if(deck_error.type == DeckError::NONE && !host_info.no_check_deck_content && !ai_free) {
 			if(dueler.deck_error) {
 				deck_error.type = DeckError::UNKNOWNCARD;
 				deck_error.code = dueler.deck_error;

@@ -2589,6 +2589,10 @@ void Game::RefreshAiDecks() {
 					bot.name = BufferIO::DecodeUTF8(obj.at("name").get_ref<std::string&>());
 					bot.deck = BufferIO::DecodeUTF8(obj.at("deck").get_ref<std::string&>());
 					bot.deckfile = epro::format(L"AI_{}", bot.deck);
+					if(auto own = obj.find("deckfile"); own != obj.end() && own->is_string()) {
+						bot.deckfile = BufferIO::DecodeUTF8(own->get_ref<std::string&>());
+						bot.own_deckfile = true;
+					}
 					bot.difficulty = obj.at("difficulty").get<int>();
 					for(auto& masterRule : obj.at("masterRules")) {
 						if(masterRule.is_number()) {

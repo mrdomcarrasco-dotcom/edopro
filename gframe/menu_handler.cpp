@@ -36,10 +36,10 @@ static bool GenesysRefusesReady(epro::wstringview deck_name) {
 	const auto* lflist = mainGame->deckBuilder.filterList;
 	const bool prog_room = lflist && lflist->listName.rfind(L"PROG - ", 0) == 0;
 	const bool prog_deck = deck_name.substr(0, 7) == epro::wstringview(L"PROG - ");
-	if(!prog_room && !prog_deck)
-		return false;
 	gdeckManager->LoadGenesys();
-	const auto& genesys = gdeckManager->genesys;
+	if(!prog_room && !prog_deck && !gdeckManager->HasOwnGenesys(lflist))
+		return false;
+	const auto& genesys = gdeckManager->GenesysFor(lflist);
 	if(!genesys.loaded || genesys.cap == 0)
 		return false;
 	const auto points = genesys.GetDeckPoints(mainGame->deckBuilder.GetCurrentDeck());

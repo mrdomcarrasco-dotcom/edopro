@@ -36,7 +36,8 @@ enum class DuelAllowedCards {
 	ALLOWED_CARDS_ANY
 };
 // Progression Series: Genesys points. ./genesys.conf holds a "$genesys <cap>" line and "<code> <points>" lines;
-// the deck editor shows each card's points and the deck total, and Ready is refused in "PROG - " rooms when the
+// "$genesys <cap> <banlist name>" starts the points of one banlist (era lists: each era has its own points and cap,
+// used while that list is picked in the deck editor or hosted). The deck editor shows each card's points and the deck total, and Ready is refused in "PROG - " rooms when the
 // deck (Main + Extra) is over the cap. No file = stock behaviour.
 struct GenesysPoints {
 	bool loaded{ false };
@@ -71,7 +72,20 @@ public:
 	Deck pre_deck;
 	std::vector<LFList> _lfList;
 	GenesysPoints genesys;
+	std::unordered_map<std::wstring, GenesysPoints> genesys_lists; // by banlist name
 	bool LoadGenesys();
+	// the points that go with this banlist: its own section, else the file's plain one
+	const GenesysPoints& GenesysFor(const LFList* list) const {
+		if(list) {
+			auto it = genesys_lists.find(list->listName);
+			if(it != genesys_lists.end())
+				return it->second;
+		}
+		return genesys;
+	}
+	bool HasOwnGenesys(const LFList* list) const {
+		return list && genesys_lists.find(list->listName) != genesys_lists.end();
+	}
 	~DeckManager() {
 		ClearDummies();
 	}

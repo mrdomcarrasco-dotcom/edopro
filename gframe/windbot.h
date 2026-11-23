@@ -19,6 +19,7 @@ struct WindBot {
 	std::wstring name;
 	std::wstring deck;
 	std::wstring deckfile;
+	bool own_deckfile{ false }; // bots.json "deckfile": always passed on (several bots sharing one engine)
 	int difficulty;
 	std::set<int> masterRules;
 

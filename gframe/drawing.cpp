@@ -1411,8 +1411,9 @@ void Game::DrawThumb(const CardDataC* cp, irr::core::vector2di pos, LFList* lfli
 	}
 	// Genesys points in the top right corner, the same row as the limit icon (which keeps the top left, so the
 	// "1"/"2" owned-copies icons stay visible)
-	if(gdeckManager->genesys.loaded) {
-		if(const auto points = gdeckManager->genesys.GetPoints(cp)) {
+	const auto& card_genesys = gdeckManager->GenesysFor(lflist);
+	if(card_genesys.loaded) {
+		if(const auto points = card_genesys.GetPoints(cp)) {
 			// the limit icon's size, in the top right corner
 			irr::core::recti badgeloc(dragloc.LowerRightCorner.X - limitloc.getWidth(), dragloc.UpperLeftCorner.Y,
 									  dragloc.LowerRightCorner.X, dragloc.UpperLeftCorner.Y + limitloc.getHeight());
@@ -1473,9 +1474,9 @@ void Game::DrawDeckBd() {
 		const auto main_deck_size_str = GetDeckSizeStr(current_deck.main, gdeckManager->pre_deck.main);
 		DrawShadowText(numFont, main_deck_size_str, Resize(379, 137, 439, 157), Resize(1, 1, 1, 1), 0xffffffff, 0xff000000, false, true);
 
-		if(gdeckManager->genesys.loaded) {
-			const auto points = gdeckManager->genesys.GetDeckPoints(current_deck);
-			const auto cap = gdeckManager->genesys.cap;
+		if(const auto& deck_genesys = gdeckManager->GenesysFor(deckBuilder.filterList); deck_genesys.loaded) {
+			const auto points = deck_genesys.GetDeckPoints(current_deck);
+			const auto cap = deck_genesys.cap;
 			const auto genesys_str = epro::format(L"Genesys {}/{}", points, cap);
 			const irr::video::SColor genesys_color = (cap && points > cap) ? 0xffff4040 : 0xffffffff;
 			DrawShadowText(textFont, genesys_str, Resize(425, 136, 560, 156), Resize(1, 1, 1, 1), genesys_color, 0xff000000, false, true);

@@ -3,6 +3,7 @@
 #include <zlib.h>
 #include "network.h"
 #include "deck_manager.h"
+#include "bufferio.h"
 #include "data_manager.h"
 #include "game.h"
 #include <IGUIEditBox.h>
@@ -97,9 +98,12 @@ bool DeckManager::LoadLFListFolder(epro::path_stringview _path) {
 bool DeckManager::LoadGenesys() {
 	static constexpr auto key = "$genesys"sv;
 	GenesysPoints loaded_points;
+	std::unordered_map<std::wstring, GenesysPoints> lists;
+	GenesysPoints* section = &loaded_points;
 	FileStream infile{ EPRO_TEXT("./genesys.conf"), FileStream::in };
 	if(infile.fail()) {
 		genesys = GenesysPoints{};
+		genesys_lists.clear();
 		return false;
 	}
 	std::string str;
@@ -113,8 +117,13 @@ bool DeckManager::LoadGenesys() {
 			continue;
 		try {
 			if(str.rfind(key.data(), 0, key.size()) == 0) {
-				loaded_points.cap = static_cast<uint32_t>(std::stoul(str.substr(key.size())));
-				loaded_points.loaded = true;
+				auto rest = str.substr(key.size());
+				size_t used = 0;
+				const auto cap = static_cast<uint32_t>(std::stoul(rest, &used));
+				const auto name_pos = rest.find_first_not_of(' ', used);
+				section = name_pos == std::string::npos ? &loaded_points : &lists[BufferIO::DecodeUTF8(rest.substr(name_pos))];
+				section->cap = cap;
+				section->loaded = true;
 				continue;
 			}
 			auto p = str.find(' ');
@@ -123,12 +132,13 @@ bool DeckManager::LoadGenesys() {
 			auto code = static_cast<uint32_t>(std::stoul(str.substr(0, p)));
 			auto value = static_cast<uint32_t>(std::stoul(str.substr(p + 1)));
 			if(code && value)
-				loaded_points.points[code] = value;
+				section->points[code] = value;
 		}
 		catch(...) {}
 	}
 	genesys = std::move(loaded_points);
-	return genesys.loaded;
+	genesys_lists = std::move(lists);
+	return genesys.loaded || !genesys_lists.empty();
 }
 void DeckManager::LoadLFList() {
 	LoadGenesys();
