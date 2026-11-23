@@ -76,6 +76,10 @@ bool GenericDuel::BrMuted(DuelPlayer* dp) const {
 	return seat >= 0 && !br.Receives(static_cast<uint8_t>(seat));
 }
 
+bool GenericDuel::TeamOneFirst() const {
+	return battle_royal && (host_info.duel_flag_high & (DUEL_BATTLE_ROYAL_TEAMS >> 32)) && !swapped;
+}
+
 uint8_t GenericDuel::BrLoserSlot(DuelPlayer* dp) const {
 	const int seat = BrSeatOf(dp);
 	if(seat >= 0 && br.OnStage(static_cast<uint8_t>(seat)))
@@ -660,6 +664,12 @@ void GenericDuel::HandResult(DuelPlayer* dp, uint8_t res) {
 			hand_result[1] = 0;
 			players.home.front().player->state = CTOS_HAND_RESULT;
 			players.opposing.front().player->state = CTOS_HAND_RESULT;
+		} else if(TeamOneFirst()) {
+			// team Battle Royal: team 1 always starts, nobody is asked
+			players.opposing.front().player->state = 0xff;
+			players.home.front().player->state = CTOS_TP_RESULT;
+			duel_stage = DUEL_STAGE_FIRSTGO;
+			TPResult(players.home.front().player, 1);
 		} else if((hand_result[0] == 1 && hand_result[1] == 2)
 				  || (hand_result[0] == 2 && hand_result[1] == 3)
 				  || (hand_result[0] == 3 && hand_result[1] == 1)) {
@@ -710,7 +720,9 @@ void GenericDuel::TPResult(DuelPlayer* dp, uint8_t tp) {
 		return;
 	duel_stage = DUEL_STAGE_DUELING;
 	if(swapped) tp = 1 - tp;
-	if((!swapped && ((tp == 1 && players.opposing.front() == dp) || (tp == 0 && players.home.front() == dp))) ||
+	if(TeamOneFirst()) {
+		// team Battle Royal (Dominic 2026-11-22): team 1 (the lobby's first side) always starts
+	} else if((!swapped && ((tp == 1 && players.opposing.front() == dp) || (tp == 0 && players.home.front() == dp))) ||
 		(swapped && ((tp == 0 && players.opposing.front() == dp) || (tp == 1 && players.home.front() == dp)))) {
 		std::swap(players.opposing, players.home);
 		std::swap(players.home_size, players.opposing_size);

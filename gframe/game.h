@@ -105,6 +105,7 @@ struct DuelInfo {
 			std::wstring name;
 			int32_t lp = 0;
 			bool alive = true;
+			bool had_turn = false; // can't be attacked before its first turn
 			bool seen = false; // board counts below are known (the seat has been on the field)
 			uint8_t placement = 0;
 			uint8_t slot = 0xff;

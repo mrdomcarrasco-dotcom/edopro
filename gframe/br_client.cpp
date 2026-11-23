@@ -171,6 +171,8 @@ bool CanTarget(uint8_t seat) {
 		return false;
 	if(br.teams && br.seats[seat].team == br.seats[br.my_seat].team)
 		return false;
+	if(msg == MSG_SELECT_BATTLECMD && !br.seats[seat].had_turn)
+		return false; // nobody is attacked before their first turn
 	return true;
 }
 
@@ -715,7 +717,7 @@ void DrawOffstage() {
 		}
 		// attack pick: an opponent's monsters light up like any selectable card
 		if(picking) {
-			const bool pickable = seat != BR().my_seat && BR().seats[seat].alive && !Allies(seat, BR().my_seat);
+			const bool pickable = seat != BR().my_seat && BR().seats[seat].alive && BR().seats[seat].had_turn && !Allies(seat, BR().my_seat);
 			for(auto* c : d.mzone[k]) if(c) c->is_selectable = pickable;
 		}
 		for(auto* c : o.overlays) mainGame->DrawCard(c);
@@ -981,6 +983,13 @@ bool Opponent(uint8_t s) {
 		return false;
 	return !Allies(s, br.my_seat);
 }
+// an opponent we may attack: one who has had a turn
+bool Attackable(uint8_t s) { return Opponent(s) && BR().seats[s].had_turn; }
+int AttackableCount() {
+	int n = 0;
+	for(uint8_t s = 0; s < 4; ++s) n += Attackable(s);
+	return n;
+}
 int OpponentCount() {
 	int n = 0;
 	for(uint8_t s = 0; s < 4; ++s) n += Opponent(s);
@@ -1018,7 +1027,7 @@ bool CommitPick(uint8_t seat, ClientCard* target) {
 	EndPick();
 	const auto& br = BR();
 	auto& d = mainGame->dField;
-	if(!a || !Opponent(seat) || mainGame->dInfo.curMsg != MSG_SELECT_BATTLECMD || DuelClient::answered)
+	if(!a || !Attackable(seat) || mainGame->dInfo.curMsg != MSG_SELECT_BATTLECMD || DuelClient::answered)
 		return false;
 	const auto it = std::find(d.attackable_cards.begin(), d.attackable_cards.end(), a);
 	if(it == d.attackable_cards.end())
@@ -1110,12 +1119,12 @@ bool BeginAttackPick(ClientCard* attacker) {
 	const auto& br = BR();
 	if(!br.active || br.my_seat >= 4 || br.active_seat != br.my_seat || !attacker)
 		return false;
-	if(OpponentCount() < 2 || !AttackStillOpen(attacker))
+	if(AttackableCount() < 2 || !AttackStillOpen(attacker))
 		return false;
 	std::vector<std::pair<std::wstring, std::function<void()>>> items;
 	bool monsters = false;
 	for(uint8_t s = 0; s < 4; ++s) {
-		if(!Opponent(s)) continue;
+		if(!Attackable(s)) continue;
 		if(SeatHasMonsters(s)) { monsters = true; continue; }
 		items.emplace_back(epro::format(L"Direct attack: {}", SeatName(s)), [attacker, s] {
 			if(!AttackStillOpen(attacker)) return;
@@ -1405,7 +1414,7 @@ bool OnMouse(const irr::SEvent& event) {
 			}
 			if(ev == irr::EMIE_LMOUSE_LEFT_UP) {
 				const auto& br = BR();
-				if(off_hover_seat != NONE && Opponent(off_hover_seat)) {
+				if(off_hover_seat != NONE && Attackable(off_hover_seat)) {
 					if(off_hover_card && off_hover_card->location == LOCATION_MZONE)
 						CommitPick(off_hover_seat, off_hover_card);
 					return true;

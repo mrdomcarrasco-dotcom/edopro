@@ -142,7 +142,8 @@ protected:
 	std::vector<uint8_t> br_team; // seat -> lobby side (0 = first team); a team only with DUEL_BATTLE_ROYAL_TEAMS
 	int BrSeatOf(DuelPlayer* dp) const;
 	bool BrMuted(DuelPlayer* dp) const; // offstage bot: no duel messages
-	uint8_t BrLoserSlot(DuelPlayer* dp) const; // slot reported as losing when dp leaves/surrenders
+	uint8_t BrLoserSlot(DuelPlayer* dp) const;
+	bool TeamOneFirst() const; // team Battle Royal: no choice of who goes first // slot reported as losing when dp leaves/surrenders
 	void BrSendSeatInfo();
 	void BrTurnStart(const CoreUtils::Packet& packet);
 	bool BrBoardBuffers(const CoreUtils::Packet& packet, std::vector<uint8_t>& full, std::vector<uint8_t>& pub);

@@ -4439,6 +4439,8 @@ int DuelClient::ClientAnalyze(const uint8_t* msg, uint32_t len) {
 		br.turn_slot = BufferIO::Read<uint8_t>(pbuf) & 1;
 		br.active_seat = BufferIO::Read<uint8_t>(pbuf);
 		br.target_seat = BufferIO::Read<uint8_t>(pbuf);
+		if(br.active_seat < 4)
+			br.seats[br.active_seat].had_turn = true; // only players who have had a turn can be attacked
 		const auto count = BufferIO::Read<uint8_t>(pbuf);
 		br.alive = BufferIO::Read<uint8_t>(pbuf);
 		br.count = std::max(br.count, std::min<uint8_t>(count, 4));
